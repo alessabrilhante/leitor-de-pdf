@@ -58,6 +58,7 @@ function applyMode() {
   els.reader.classList.toggle('fit-width', !t && fit === 'largura');
   for (const b of els.modeSeg.querySelectorAll('button')) b.classList.toggle('on', (b.dataset.mode === 'texto') === t);
   els.fontCtl.hidden = !t;
+  $('grifos-btn').hidden = !t;
   els.fit.hidden = t;
   els.fontSize.textContent = fontSize;
 }
@@ -80,12 +81,14 @@ function applyFit() {
 let dbPromise;
 function db() {
   dbPromise ??= new Promise((resolve, reject) => {
-    const req = indexedDB.open('folha', 2);
+    const req = indexedDB.open('folha', 3);
     req.onupgradeneeded = () => {
       const d = req.result;
       if (!d.objectStoreNames.contains('meta')) d.createObjectStore('meta', { keyPath: 'id' });
       if (!d.objectStoreNames.contains('files')) d.createObjectStore('files');
       if (!d.objectStoreNames.contains('dias')) d.createObjectStore('dias', { keyPath: 'date' });
+      if (!d.objectStoreNames.contains('leituras')) d.createObjectStore('leituras', { keyPath: 'id' });
+      if (!d.objectStoreNames.contains('grifos')) d.createObjectStore('grifos', { keyPath: 'id' });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -115,6 +118,12 @@ const store = {
   allDays: () => run('dias', 'readonly', (s) => s.getAll()),
   getDay: (date) => run('dias', 'readonly', (s) => s.get(date)),
   putDay: (d) => run('dias', 'readwrite', (s) => s.put(d)),
+  allLeituras: () => run('leituras', 'readonly', (s) => s.getAll()),
+  putLeitura: (l) => run('leituras', 'readwrite', (s) => s.put(l)),
+  delLeitura: (id) => run('leituras', 'readwrite', (s) => s.delete(id)),
+  allGrifos: () => run('grifos', 'readonly', (s) => s.getAll()),
+  putGrifo: (g) => run('grifos', 'readwrite', (s) => s.put(g)),
+  delGrifo: (id) => run('grifos', 'readwrite', (s) => s.delete(id)),
   async remove(id) {
     await run('meta', 'readwrite', (s) => s.delete(id));
     await run('files', 'readwrite', (s) => s.delete(id));
@@ -311,8 +320,9 @@ function inicioDaSemana(d = new Date()) {
   return x;
 }
 
-const metaDia = () => Math.max(1, Number(prefs.get('metaDia', 30)) || 30);
-const metaMes = () => Math.max(1, Number(prefs.get('metaMes', 900)) || 900);
+const metaDia = () => Math.max(1, Number(prefs.get('metaDia', 50)) || 50);
+const metaMes = () => Math.max(1, Number(prefs.get('metaMes', 1500)) || 1500);
+const metaAno = () => Math.max(1, Number(prefs.get('metaAno', 12)) || 12);
 
 /* ---------- Telas: Início, Biblioteca, Estatísticas ---------- */
 
@@ -389,7 +399,7 @@ function setMeta(btn, feito, meta) {
 $('meta-dia').onclick = () => editarMeta('metaDia', 'Meta do dia', metaDia(), 5);
 $('meta-mes').onclick = () => editarMeta('metaMes', 'Meta do mês', metaMes(), 50);
 
-function editarMeta(chave, titulo, valor, passo) {
+function editarMeta(chave, titulo, valor, passo, pergunta = 'Quantas páginas?') {
   const body = el('div', 'meta-edit');
   const num = el('input', 'meta-input');
   num.type = 'number';
@@ -398,7 +408,7 @@ function editarMeta(chave, titulo, valor, passo) {
   const menos = el('button', 'btn-redondo', '−');
   const mais = el('button', 'btn-redondo', '+');
   menos.type = mais.type = 'button';
-  menos.onclick = () => { num.value = Math.max(passo, (Number(num.value) || 0) - passo); };
+  menos.onclick = () => { num.value = Math.max(1, (Number(num.value) || 0) - passo); };
   mais.onclick = () => { num.value = (Number(num.value) || 0) + passo; };
   const linha = el('div', 'meta-linha');
   linha.append(menos, num, mais);
@@ -411,7 +421,7 @@ function editarMeta(chave, titulo, valor, passo) {
     closeSheet();
     renderView(false);
   };
-  body.append(el('h3', 'sheet-titulo', titulo), el('p', 'sheet-sub', 'Quantas páginas?'), linha, salvar);
+  body.append(el('h3', 'sheet-titulo', titulo), el('p', 'sheet-sub', pergunta), linha, salvar);
   openSheet(body);
 }
 
@@ -530,7 +540,14 @@ async function opcoesLivro(id) {
     renderView(false);
   };
 
-  body.append(box, nova, del);
+  const lido = el('button', 'btn-leve largo', b.lidoEm ? `Lido em ${dataBR(b.lidoEm)} ✓ · desfazer` : 'Marcar como lido');
+  lido.type = 'button';
+  lido.onclick = () => marcarLido(id);
+  const nGrifos = (await store.allGrifos()).filter((g) => g.bookId === id).length;
+  const grifos = el('button', 'btn-leve largo', `Grifos (${nGrifos})`);
+  grifos.type = 'button';
+  grifos.onclick = () => verGrifos(id);
+  body.append(box, nova, lido, grifos, del);
   openSheet(body);
 }
 
@@ -550,7 +567,8 @@ async function renderStats() {
   const [books, days] = await Promise.all([store.allMeta(), store.allDays()]);
   const hoje = new Date();
   const box = $('stats');
-  box.replaceChildren();
+  const ano = await anoDeLeitura();
+  box.replaceChildren(ano);
 
   const bloco = (titulo, itens) => {
     const s = el('section', 'stat-bloco');
@@ -755,6 +773,375 @@ $('lembrete-btn').onclick = () => {
 
 estadoLembrete();
 syncPrefsLembrete();
+/* ---------- Meu ano de leitura: livros lidos e meta anual ---------- */
+
+const dataBR = (key) => {
+  const [y, m, d] = key.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' }).replace('.', '');
+};
+const novoId = () => (crypto.randomUUID?.() ?? String(Date.now()) + Math.random().toString(16).slice(2));
+
+async function lidosDoAno(ano) {
+  const [books, leit] = await Promise.all([store.allMeta(), store.allLeituras()]);
+  const out = [];
+  for (const b of books) {
+    if (b.lidoEm?.startsWith(ano)) out.push({ tipo: 'pdf', id: b.id, nome: titulo(b), autor: b.author || '', data: b.lidoEm });
+  }
+  for (const l of leit) {
+    if (l.status === 'lido' && l.fim?.startsWith(ano)) out.push({ tipo: 'papel', id: l.id, nome: l.nome, autor: l.autor || '', data: l.fim });
+  }
+  return out.sort((a, b) => b.data.localeCompare(a.data));
+}
+
+async function anoDeLeitura() {
+  const ano = String(new Date().getFullYear());
+  const lidos = await lidosDoAno(ano);
+  const lendoPapel = (await store.allLeituras()).filter((l) => l.status === 'lendo');
+  const s = el('section', 'ano');
+
+  const topo = el('button', 'ano-topo');
+  topo.type = 'button';
+  const meta = metaAno();
+  topo.append(
+    el('span', 'kicker', `Meu ${ano} de leitura`),
+    el('strong', 'ano-num', `${lidos.length} de ${meta} livros`),
+    Object.assign(el('span', 'barra'), { innerHTML: `<i style="width:${pct(lidos.length, meta)}%"></i>` }),
+    el('span', 'ano-dica', 'Toque pra mudar a meta do ano'),
+  );
+  topo.onclick = () => editarMeta('metaAno', `Meta de ${ano}`, meta, 1, 'Quantos livros você quer ler este ano?');
+  s.append(topo);
+
+  const acoes = el('div', 'ano-acoes');
+  const addLido = el('button', 'btn-leve', '+ Livro que já li');
+  addLido.type = 'button';
+  addLido.onclick = () => adicionarLido();
+  const addPapel = el('button', 'btn-leve', '+ Páginas no papel');
+  addPapel.type = 'button';
+  addPapel.onclick = () => registrarFisico();
+  acoes.append(addLido, addPapel);
+  s.append(acoes);
+
+  if (lendoPapel.length) {
+    s.append(el('h3', 'secao', 'Lendo no papel'));
+    const ul = el('ul', 'ano-lista');
+    for (const l of lendoPapel) {
+      const li = el('li');
+      const b = el('button', 'ano-item');
+      b.type = 'button';
+      const info = el('span', 'ano-item-info');
+      info.append(el('strong', '', l.nome), el('span', '', l.total ? `Pág. ${l.pagina || 0} de ${l.total}` : `${l.pagina || 0} páginas lidas`));
+      b.append(el('span', 'ano-ico', '📖'), info, el('span', 'ano-tag', 'anotar'));
+      b.onclick = () => registrarFisico(l.id);
+      li.append(b);
+      ul.append(li);
+    }
+    s.append(ul);
+  }
+
+  s.append(el('h3', 'secao', lidos.length ? `Lidos em ${ano}` : `Nenhum livro terminado em ${ano} ainda`));
+  if (lidos.length) {
+    const ul = el('ul', 'ano-lista');
+    lidos.forEach((l, i) => {
+      const li = el('li');
+      const b = el('button', 'ano-item');
+      b.type = 'button';
+      const info = el('span', 'ano-item-info');
+      info.append(el('strong', '', l.nome), el('span', '', [l.autor, dataBR(l.data)].filter(Boolean).join(' · ')));
+      b.append(el('span', 'ano-ico', String(lidos.length - i)), info, el('span', 'ano-tag', l.tipo === 'pdf' ? 'PDF' : 'papel'));
+      b.onclick = () => opcoesLido(l);
+      li.append(b);
+      ul.append(li);
+    });
+    s.append(ul);
+  }
+  return s;
+}
+
+function campo(rotulo, input) {
+  const box = el('label', 'campo');
+  box.append(el('span', '', rotulo), input);
+  return box;
+}
+function inputDe(type, valor = '', attrs = {}) {
+  const i = el('input');
+  i.type = type;
+  i.value = valor;
+  Object.assign(i, attrs);
+  return i;
+}
+
+function adicionarLido() {
+  const body = el('div', 'form');
+  const nome = inputDe('text', '', { placeholder: 'Nome do livro', maxLength: 120 });
+  const autor = inputDe('text', '', { placeholder: 'Opcional', maxLength: 80 });
+  const fim = inputDe('date', dayKey());
+  const salvar = el('button', 'btn-cheio', 'Salvar');
+  salvar.type = 'button';
+  salvar.onclick = async () => {
+    if (!nome.value.trim()) { nome.focus(); return; }
+    await store.putLeitura({ id: novoId(), nome: nome.value.trim(), autor: autor.value.trim(), status: 'lido', fim: fim.value || dayKey(), tipo: 'papel', criado: Date.now() });
+    closeSheet();
+    toast('Livro anotado 📚');
+    renderView(false);
+  };
+  body.append(el('h3', 'sheet-titulo', 'Livro que já li'), campo('Livro', nome), campo('Autor', autor), campo('Terminei em', fim), salvar);
+  openSheet(body);
+}
+
+async function opcoesLido(l) {
+  const body = el('div');
+  body.append(el('h3', 'sheet-titulo', l.nome), el('p', 'sheet-sub', `Terminado em ${dataBR(l.data)}`));
+  const tirar = el('button', 'btn-perigo', 'Tirar da lista de lidos');
+  tirar.type = 'button';
+  tirar.onclick = async () => {
+    if (l.tipo === 'pdf') {
+      const b = await store.getMeta(l.id);
+      if (b) { delete b.lidoEm; await store.putMeta(b); }
+    } else {
+      const all = await store.allLeituras();
+      const x = all.find((y) => y.id === l.id);
+      // livro físico com páginas anotadas volta pra "lendo"; o que foi só anotado como lido sai
+      if (x?.pagina) { x.status = 'lendo'; delete x.fim; await store.putLeitura(x); } else await store.delLeitura(l.id);
+    }
+    closeSheet();
+    renderView(false);
+  };
+  body.append(tirar);
+  openSheet(body);
+}
+
+async function marcarLido(id) {
+  const b = await store.getMeta(id);
+  if (!b) return;
+  if (b.lidoEm) {
+    delete b.lidoEm;
+    toast('Tirei da lista de lidos');
+  } else {
+    b.lidoEm = dayKey();
+    b.tags = [...new Set([...(b.tags || []).filter((t) => t !== 'Lendo' && t !== 'Quero ler'), 'Lido'])];
+    toast(`Mais um lido em ${new Date().getFullYear()} 🎉`);
+  }
+  await store.putMeta(b);
+  closeSheet();
+  renderView(false);
+}
+
+/* ---------- Livro físico: anotar páginas lidas no papel ---------- */
+
+async function registrarFisico(preId) {
+  const lendo = (await store.allLeituras()).filter((l) => l.status === 'lendo').sort((a, b) => (b.atualizado || 0) - (a.atualizado || 0));
+  const body = el('div', 'form');
+  body.append(el('h3', 'sheet-titulo', 'Livro físico'), el('p', 'sheet-sub', 'Anote as páginas que você leu no papel. Elas entram nas metas, no calendário e nas estatísticas.'));
+
+  const qual = el('select');
+  for (const l of lendo) {
+    const o = el('option', '', l.nome);
+    o.value = l.id;
+    if (l.id === preId) o.selected = true;
+    qual.append(o);
+  }
+  const novo = el('option', '', '+ Outro livro…');
+  novo.value = '';
+  qual.append(novo);
+  if (!lendo.length) qual.value = '';
+
+  const novoBox = el('div');
+  const nome = inputDe('text', '', { placeholder: 'Nome do livro', maxLength: 120 });
+  const autor = inputDe('text', '', { placeholder: 'Opcional', maxLength: 80 });
+  const total = inputDe('number', '', { placeholder: 'Opcional', inputMode: 'numeric', min: 1 });
+  novoBox.append(campo('Livro', nome), campo('Autor', autor), campo('Total de páginas', total));
+  const mostrar = () => { novoBox.hidden = qual.value !== ''; };
+  qual.onchange = mostrar;
+  mostrar();
+
+  const pags = inputDe('number', '', { placeholder: 'Ex.: 25', inputMode: 'numeric', min: 1 });
+  const min = inputDe('number', '', { placeholder: 'Opcional', inputMode: 'numeric', min: 0 });
+  const quando = el('select');
+  for (const [v, t] of [[0, 'Hoje'], [1, 'Ontem'], [2, 'Anteontem']]) {
+    const o = el('option', '', t);
+    o.value = v;
+    quando.append(o);
+  }
+  const terminei = el('label', 'check');
+  const cb = inputDe('checkbox');
+  terminei.append(cb, el('span', '', 'Terminei este livro'));
+
+  const salvar = el('button', 'btn-cheio', 'Anotar');
+  salvar.type = 'button';
+  salvar.onclick = async () => {
+    const n = Math.round(Number(pags.value) || 0);
+    if (n < 1 && !cb.checked) { pags.focus(); return; }
+    let l;
+    if (qual.value) l = lendo.find((x) => x.id === qual.value);
+    else {
+      if (!nome.value.trim()) { nome.focus(); return; }
+      l = { id: novoId(), nome: nome.value.trim(), autor: autor.value.trim(), total: Math.round(Number(total.value) || 0) || null, pagina: 0, status: 'lendo', tipo: 'papel', criado: Date.now() };
+    }
+    const d = new Date();
+    d.setDate(d.getDate() - Number(quando.value));
+    const key = dayKey(d);
+    l.pagina = (l.pagina || 0) + Math.max(0, n);
+    l.atualizado = Date.now();
+    if (cb.checked || (l.total && l.pagina >= l.total)) { l.status = 'lido'; l.fim = key; }
+    await store.putLeitura(l);
+
+    if (n > 0) {
+      const ms = Math.round(Number(min.value) || 0) * 60000;
+      const day = (await store.getDay(key)) || { date: key, ms: 0, pages: 0, books: {} };
+      day.pages += n;
+      day.ms += ms;
+      const b = day.books['papel:' + l.id] || { ms: 0, pages: 0 };
+      b.pages += n;
+      b.ms += ms;
+      b.name = l.nome;
+      day.books['papel:' + l.id] = b;
+      await store.putDay(day);
+    }
+    closeSheet();
+    toast(l.status === 'lido' ? `Terminou "${l.nome}" 🎉` : `Anotado: ${n} páginas 📖`);
+    renderView(false);
+  };
+
+  body.append(campo('Qual livro', qual), novoBox, campo('Páginas que li', pags), campo('Tempo (minutos)', min), campo('Quando', quando), terminei, salvar);
+  openSheet(body);
+}
+
+$('fisico-btn').onclick = () => registrarFisico();
+
+/* ---------- Grifos (modo Texto) ---------- */
+
+let grifosLivro = [];
+
+function temSelecao() {
+  const sel = window.getSelection?.();
+  return !!(sel && !sel.isCollapsed && String(sel).trim() && flowEl && flowEl.contains(sel.anchorNode));
+}
+
+document.addEventListener('selectionchange', () => {
+  $('grifar').hidden = !(textMode() && !els.reader.hidden && temSelecao());
+});
+
+// posição (em letras) de um ponto dentro do parágrafo
+function offsetEm(p, node, off) {
+  const r = document.createRange();
+  r.setStart(p, 0);
+  r.setEnd(node, off);
+  return r.toString().length;
+}
+
+$('grifar').addEventListener('click', async () => {
+  const sel = window.getSelection();
+  if (!sel || sel.isCollapsed || !flowEl || !book) return;
+  const range = sel.getRangeAt(0);
+  const segs = [];
+  [...flowEl.children].forEach((p, pi) => {
+    if (!range.intersectsNode(p)) return;
+    const start = p.contains(range.startContainer) ? offsetEm(p, range.startContainer, range.startOffset) : 0;
+    const end = p.contains(range.endContainer) ? offsetEm(p, range.endContainer, range.endOffset) : p.textContent.length;
+    if (end > start) segs.push({ pi, start, end, t: p.textContent.slice(start, end) });
+  });
+  sel.removeAllRanges();
+  $('grifar').hidden = true;
+  if (!segs.length) return;
+  const g = { id: novoId(), bookId: book.id, page: pageNum, segs, texto: segs.map((x) => x.t).join(' '), criado: Date.now() };
+  await store.putGrifo(g);
+  grifosLivro.push(g);
+  pintarGrifos(flowEl, pageNum);
+  toast('Grifado 🖍');
+});
+
+function marcar(p, start, end, id) {
+  const walker = document.createTreeWalker(p, NodeFilter.SHOW_TEXT);
+  let pos = 0;
+  const alvos = [];
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    const a = pos, b = pos + n.length;
+    if (b > start && a < end) alvos.push([n, Math.max(start, a) - a, Math.min(end, b) - a]);
+    pos = b;
+  }
+  for (const [n, s, e] of alvos.reverse()) {
+    const r = document.createRange();
+    r.setStart(n, s);
+    r.setEnd(n, e);
+    const m = document.createElement('mark');
+    m.dataset.g = id;
+    r.surroundContents(m);
+  }
+}
+
+function pintarGrifos(flow, page) {
+  if (!flow) return;
+  for (const m of flow.querySelectorAll('mark[data-g]')) m.replaceWith(...m.childNodes);
+  flow.normalize();
+  for (const g of grifosLivro.filter((x) => x.page === page)) {
+    for (const sgm of g.segs) {
+      let p = flow.children[sgm.pi];
+      let { start, end } = sgm;
+      // se o parágrafo mudou de lugar, acha pelo texto
+      if (!p || p.textContent.slice(start, end) !== sgm.t) {
+        p = [...flow.children].find((x) => x.textContent.includes(sgm.t));
+        if (!p) continue;
+        start = p.textContent.indexOf(sgm.t);
+        end = start + sgm.t.length;
+      }
+      marcar(p, start, end, g.id);
+    }
+  }
+}
+
+function opcoesGrifo(id) {
+  const g = grifosLivro.find((x) => x.id === id);
+  if (!g) return;
+  const body = el('div');
+  body.append(el('h3', 'sheet-titulo', 'Grifo'), el('blockquote', 'grifo-texto', `“${g.texto}”`));
+  const copiar = el('button', 'btn-leve', 'Copiar trecho');
+  copiar.type = 'button';
+  copiar.onclick = async () => {
+    try { await navigator.clipboard.writeText(`“${g.texto}” — ${titulo(book || {})}`); copiar.textContent = 'Copiado ✓'; } catch { /* sem permissão */ }
+  };
+  const del = el('button', 'btn-perigo', 'Remover grifo');
+  del.type = 'button';
+  del.onclick = async () => {
+    await store.delGrifo(id);
+    grifosLivro = grifosLivro.filter((x) => x.id !== id);
+    pintarGrifos(flowEl, pageNum);
+    closeSheet();
+  };
+  body.append(copiar, del);
+  openSheet(body);
+}
+
+async function verGrifos(bookId) {
+  const b = await store.getMeta(bookId);
+  const lista = (await store.allGrifos()).filter((g) => g.bookId === bookId).sort((a, c) => a.page - c.page || a.criado - c.criado);
+  const body = el('div');
+  body.append(el('h3', 'sheet-titulo', `Grifos · ${b ? titulo(b) : ''}`));
+  if (!lista.length) {
+    body.append(el('p', 'sheet-sub', 'Nenhum grifo ainda. No modo Texto, segure o dedo numa palavra, ajuste a seleção e toque em "Grifar".'));
+    return openSheet(body);
+  }
+  const ul = el('ul', 'grifos-lista');
+  for (const g of lista) {
+    const li = el('li');
+    const btn = el('button', 'grifo-item');
+    btn.type = 'button';
+    btn.append(el('span', 'grifo-texto', `“${g.texto}”`), el('span', 'grifo-pag', `pág. ${g.page}`));
+    btn.onclick = async () => {
+      closeSheet();
+      if (book?.id === bookId && doc) { goTo(g.page, { skip: false }); return; }
+      const m = await store.getMeta(bookId);
+      if (m) { m.page = g.page; m.frac = 0; await store.putMeta(m); }
+      openBook(bookId);
+    };
+    li.append(btn);
+    ul.append(li);
+  }
+  body.append(ul);
+  openSheet(body);
+}
+
+$('grifos-btn').addEventListener('click', () => { if (book) verGrifos(book.id); });
+
 
 const cleanName = (n) => n.replace(/(\.pdf)+$/i, '').replace(/_+/g, ' ').replace(/\s{2,}/g, ' ').trim() || 'Sem título';
 
@@ -819,6 +1206,7 @@ async function openBook(id, isNew = false) {
 
   book.pages = doc.numPages;
   book.opened = true;
+  grifosLivro = (await store.allGrifos().catch(() => [])).filter((g) => g.bookId === book.id);
   pend = { ms: 0, pages: 0 };
   lastActive = Date.now();
   els.slider.max = doc.numPages;
@@ -1219,6 +1607,7 @@ async function goToText(n, at = {}) {
   els.stage.replaceChildren(view);
   clearCache();
   flowEl = flow;
+  pintarGrifos(flow, n);
   els.loading.hidden = true;
   layoutFlow();
   await new Promise(requestAnimationFrame);
@@ -1286,6 +1675,7 @@ els.stage.addEventListener('touchend', (e) => {
   const dx = t.clientX - touch.x;
   const dy = t.clientY - touch.y;
   touch = null;
+  if (temSelecao()) return;
   if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) {
     swipedAt = Date.now();
     if (dx < 0) next(); else prev();
@@ -1294,6 +1684,9 @@ els.stage.addEventListener('touchend', (e) => {
 
 els.stage.addEventListener('click', (e) => {
   if (Date.now() - swipedAt < 400) return;
+  const mark = e.target.closest?.('mark[data-g]');
+  if (mark) { opcoesGrifo(mark.dataset.g); return; }
+  if (temSelecao()) return;
   const x = e.clientX / window.innerWidth;
   if (x < 0.3) prev();
   else if (x > 0.7) next();

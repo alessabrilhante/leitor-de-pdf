@@ -69,6 +69,11 @@
         <p class="dica">Toque numa meta pra mudar o número.</p>
       </section>
 
+      <button id="fisico-btn" class="lembrete-btn" type="button">
+        <span class="lembrete-sino">📖</span>
+        <span><strong>Livro físico</strong><span>Anotar as páginas que você leu no papel</span></span>
+      </button>
+
       <button id="lembrete-btn" class="lembrete-btn" type="button">
         <span class="lembrete-sino">🔔</span>
         <span><strong>Lembrete de leitura</strong><span id="lembrete-estado">Desligado</span></span>
@@ -124,6 +129,7 @@
     <div id="bar-top" class="bar bar-top">
       <button id="back" class="bar-btn" type="button">‹ Estante</button>
       <span id="title" class="bar-title"></span>
+      <button id="grifos-btn" class="bar-btn" type="button">Grifos</button>
     </div>
 
     <div id="bar-bottom" class="bar bar-bottom">
@@ -146,6 +152,8 @@
       </div>
     </div>
   </section>
+
+  <button id="grifar" class="grifar" type="button" hidden>🖍 Grifar</button>
 
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 

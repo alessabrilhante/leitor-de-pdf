@@ -641,3 +641,96 @@ body[data-theme="rosa"] .book-spine { background: linear-gradient(90deg, #f7b6cf
   resize: none;
 }
 .btn-cheio:disabled { opacity: .5; }
+
+/* Meu ano de leitura */
+.ano { margin-bottom: 16px; }
+.ano-topo {
+  display: block;
+  width: 100%;
+  padding: 16px;
+  margin-bottom: 10px;
+  text-align: left;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  cursor: pointer;
+}
+.ano-num { display: block; margin: 2px 0 10px; font: 700 26px/1.1 -apple-system, BlinkMacSystemFont, sans-serif; }
+.ano-topo .barra { height: 8px; }
+.ano-dica { display: block; margin-top: 8px; font-size: 12px; color: var(--muted); }
+.ano-acoes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+.ano-acoes .btn-leve { padding: 11px 8px; font-weight: 600; }
+.ano-lista { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 6px; }
+.ano-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  text-align: left;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  cursor: pointer;
+}
+.ano-ico {
+  flex: none;
+  width: 30px; height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--line);
+  font-size: 13px;
+  font-weight: 700;
+}
+.ano-item-info { flex: 1; min-width: 0; }
+.ano-item-info strong { display: block; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ano-item-info span { display: block; font-size: 12.5px; color: var(--muted); }
+.ano-tag { flex: none; font-size: 11px; padding: 3px 8px; border-radius: 999px; background: var(--line); color: var(--muted); }
+
+/* formulários da janela de baixo */
+.form .campo { display: block; margin-bottom: 10px; }
+.campo > span { display: block; margin-bottom: 4px; font-size: 13px; font-weight: 600; }
+.campo input, .campo select {
+  display: block;
+  width: 100%;
+  height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  font: 16px -apple-system, BlinkMacSystemFont, sans-serif;
+  color: var(--ink);
+  -webkit-appearance: none;
+}
+.check { display: flex; align-items: center; gap: 10px; margin: 4px 0 14px; font-size: 15px; }
+.check input { width: 20px; height: 20px; accent-color: var(--accent); }
+.form .btn-cheio { width: 100%; }
+.btn-leve.largo { display: block; width: 100%; margin-top: 10px; padding: 12px; font-weight: 600; }
+
+/* grifos */
+.reader.mode-texto .flow { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
+.flow mark { background: rgba(255, 213, 79, .55); color: inherit; border-radius: 2px; padding: 0 1px; }
+body[data-theme="rosa"] .flow mark { background: rgba(240, 120, 165, .32); }
+body[data-theme="escuro"] .flow mark { background: rgba(255, 213, 79, .32); }
+.grifar {
+  position: fixed;
+  left: 50%;
+  bottom: calc(24px + var(--safe-b));
+  z-index: 6;
+  transform: translateX(-50%);
+  padding: 12px 20px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font: 600 16px -apple-system, BlinkMacSystemFont, sans-serif;
+  box-shadow: 0 6px 20px rgba(0,0,0,.2);
+  cursor: pointer;
+}
+.grifo-texto { display: block; margin: 0 0 12px; font: 16px/1.5 "New York", Georgia, serif; }
+blockquote.grifo-texto { padding: 10px 14px; border-left: 3px solid var(--accent); background: #fff; border-radius: 8px; }
+.grifos-lista { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.grifo-item { display: block; width: 100%; padding: 12px; text-align: left; background: #fff; border: 1px solid var(--line); border-radius: 12px; cursor: pointer; }
+.grifo-item .grifo-texto { margin: 0 0 4px; font-size: 15px; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.grifo-pag { font-size: 12px; color: var(--muted); }

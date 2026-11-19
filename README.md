@@ -18,6 +18,11 @@ Leitor de PDF pra iPhone e iPad. Com o livro aberto, a tela mostra só a página
 - **Biblioteca:** capas grandes ou lista, selo "Novo" nos livros ainda não abertos, busca, e etiquetas (no botão "…" de cada livro) pra filtrar.
 - **Estatísticas:** livro atual, semana e mês (páginas, páginas por dia, tempo por dia e total), meta do mês e calendário com os livros lidos em cada dia.
 
+- **Meu ano de leitura (em Estatísticas):** meta de quantos livros ler no ano, lista dos lidos (PDF marcado como lido no "…" ou livro anotado à mão) e os livros que você está lendo no papel.
+- **Livro físico:** no Início, anota as páginas lidas no papel. Elas contam nas metas, no calendário e nas estatísticas.
+- **Grifos:** no modo Texto, segure o dedo numa palavra, ajuste a seleção e toque em "Grifar". Os grifos de cada livro ficam no botão "Grifos" da barra de cima.
+- **Lembrete:** no Início, escolha o horário e copie o código pro segredo `LEMBRETE_ASSINATURAS` (um aparelho por linha). A chave de envio fica no segredo `VAPID_PRIVATE_KEY`. Em Actions → Lembrete de leitura → Run workflow dá pra testar.
+
 O tempo conta enquanto você lê e vira as páginas; se ficar mais de 3 minutos sem tocar na tela, para de contar.
 
 ## Instalar no iPhone/iPad

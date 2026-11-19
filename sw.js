@@ -1,5 +1,5 @@
 // Guarda o app no aparelho pra funcionar sem internet.
-const VERSION = 'folha-v6';
+const VERSION = 'folha-v7';
 const PREFS = 'folha-prefs';   // metas que o lembrete lê
 const CORE = [
   './',
@@ -58,7 +58,7 @@ self.addEventListener('fetch', (e) => {
 async function progressoHoje() {
   const d = new Date();
   const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  let pages = 0, meta = 30;
+  let pages = 0, meta = 50;
   try {
     const c = await caches.open(PREFS);
     const r = await c.match('metaDia');
