@@ -185,7 +185,7 @@ body[data-theme="rosa"] .novo { background: var(--accent); }
 }
 .numeros > div { text-align: center; padding: 0 4px; border-left: 1px solid var(--line); }
 .numeros > div:first-child { border-left: 0; }
-.numeros strong { display: block; font: 600 22px/1.2 "New York", Georgia, serif; white-space: nowrap; }
+.numeros strong { display: block; font: 600 22px/1.2 -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .numeros span { display: block; margin-top: 2px; font-size: 12px; color: var(--muted); }
 
 .metas { margin-bottom: 18px; }
@@ -388,7 +388,7 @@ body[data-theme="rosa"] .nav button.on { color: var(--accent); }
 .sheet-sub { margin: 0 0 12px; font-size: 13px; color: var(--muted); }
 .sheet-fechar { display: block; width: 100%; margin-top: 10px; padding: 12px; border: 0; background: none; font-weight: 600; color: var(--muted); cursor: pointer; }
 .meta-linha { display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 16px; }
-.meta-input { width: 120px; height: 48px; text-align: center; font: 600 24px "New York", Georgia, serif; border: 1px solid var(--line); border-radius: 12px; background: #fff; color: var(--ink); }
+.meta-input { width: 120px; height: 48px; text-align: center; font: 600 24px -apple-system, BlinkMacSystemFont, sans-serif; border: 1px solid var(--line); border-radius: 12px; background: #fff; color: var(--ink); }
 .meta-edit .btn-cheio { width: 100%; }
 .nova-tag { display: flex; gap: 8px; }
 .nova-tag input { flex: 1; height: 38px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; font: inherit; background: #fff; color: var(--ink); }
