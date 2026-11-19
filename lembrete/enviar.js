@@ -31,7 +31,7 @@ const body = frases[new Date().getDate() % frases.length];
     const hora = Number(item.h ?? 21);
     if (!forcar && hora !== horaAgora) continue;
     try {
-      await webpush.sendNotification(sub, JSON.stringify({ title: 'Biblioteca', body }), { TTL: 3600, urgency: 'normal' });
+      await webpush.sendNotification(sub, JSON.stringify({ title: 'Hora de ler 📚', body }), { TTL: 3600, urgency: 'normal' });
       enviados++;
       console.log(`Enviado pro ${item.a || 'aparelho'} (${hora}h).`);
     } catch (err) {

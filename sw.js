@@ -1,5 +1,5 @@
 // Guarda o app no aparelho pra funcionar sem internet.
-const VERSION = 'folha-v7';
+const VERSION = 'folha-v8';
 const PREFS = 'folha-prefs';   // metas que o lembrete lê
 const CORE = [
   './',
@@ -85,11 +85,19 @@ self.addEventListener('push', (e) => {
     let data = {};
     try { data = e.data ? e.data.json() : {}; } catch { /* texto simples */ }
     const { pages, meta } = await progressoHoje();
-    let body;
-    if (pages >= meta) body = `Meta de hoje batida: ${pages} páginas. Se quiser, mais um capítulo 💗`;
-    else if (pages > 0) body = `Faltam ${meta - pages} páginas pra sua meta de hoje. Bora? 📚`;
-    else body = data.body || 'Que tal ler umas páginas agora? 📚';
-    await self.registration.showNotification(data.title || 'Biblioteca', {
+    // o iPhone já põe "from Biblioteca" embaixo do título, então o título traz a novidade
+    let title, body;
+    if (pages >= meta) {
+      title = 'Meta batida 🎉';
+      body = `Você leu ${pages} páginas hoje. Se quiser, mais um capítulo 💗`;
+    } else if (pages > 0) {
+      title = `Faltam ${meta - pages} páginas`;
+      body = `Você já leu ${pages} hoje. Bora fechar a meta?`;
+    } else {
+      title = 'Hora de ler 📚';
+      body = `Sua meta de hoje é ${meta} páginas. Bora começar?`;
+    }
+    await self.registration.showNotification(title, {
       body,
       icon: 'icon-180.png',
       tag: 'lembrete-leitura',

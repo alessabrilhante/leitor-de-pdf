@@ -756,7 +756,7 @@ $('lembrete-btn').onclick = () => {
       };
       const teste = el('button', 'btn-leve', 'Ver como fica');
       teste.type = 'button';
-      teste.onclick = () => reg.showNotification('Biblioteca', { body: 'Que tal ler umas páginas agora? 📚', icon: 'icon-180.png', tag: 'teste' });
+      teste.onclick = () => reg.showNotification('Hora de ler 📚', { body: `Sua meta de hoje é ${metaDia()} páginas. Bora começar?`, icon: 'icon-180.png', tag: 'teste' });
       saida.replaceChildren(
         el('p', 'sheet-sub', 'Último passo, só uma vez: copie o código e cole no GitHub, em Settings → Secrets and variables → Actions → LEMBRETE_ASSINATURAS. Se já tiver o código de outro aparelho lá, cole este numa linha nova.'),
         area, copiar, teste,
