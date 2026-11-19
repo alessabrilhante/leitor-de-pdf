@@ -1,0 +1,255 @@
+:root {
+  --paper: #ffffff;
+  --ink: #1d1b18;
+  --muted: #8a847a;
+  --line: #e7e1d6;
+  --shell: #f7f4ee;
+  --accent: #1d1b18;
+  --bar: rgba(29, 27, 24, .86);
+  --bar-ink: #f7f4ee;
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+}
+
+[hidden] { display: none !important; }
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--shell);
+  color: var(--ink);
+  font: 16px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+  -webkit-text-size-adjust: 100%;
+}
+
+button { font: inherit; color: inherit; }
+
+/* ---------- Estante ---------- */
+
+.library {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: calc(28px + var(--safe-t)) calc(20px + var(--safe-r)) calc(40px + var(--safe-b)) calc(20px + var(--safe-l));
+}
+
+.lib-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 28px;
+}
+
+.lib-head h1 {
+  margin: 0;
+  font: 600 34px/1 "New York", "Iowan Old Style", Georgia, serif;
+  letter-spacing: -.5px;
+}
+
+.btn-add {
+  display: inline-flex;
+  align-items: center;
+  height: 40px;
+  padding: 0 16px;
+  border-radius: 20px;
+  background: var(--accent);
+  color: var(--shell);
+  font-weight: 600;
+  font-size: 15px;
+  cursor: pointer;
+  user-select: none;
+}
+.btn-add:active { opacity: .8; }
+
+.empty {
+  margin: 80px 0;
+  text-align: center;
+  color: var(--muted);
+}
+
+.books {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.book {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 14px 14px 16px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  cursor: pointer;
+}
+.book:active { background: #fbfaf7; }
+
+.book-spine {
+  flex: none;
+  width: 38px;
+  height: 52px;
+  border-radius: 3px 6px 6px 3px;
+  background: linear-gradient(90deg, #d9d1c3 0 4px, #ece6da 4px);
+  box-shadow: inset -1px 0 0 rgba(0,0,0,.05);
+}
+
+.book-info { flex: 1; min-width: 0; }
+
+.book-name {
+  margin: 0 0 4px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.book-meta { margin: 0; font-size: 13px; color: var(--muted); }
+
+.progress {
+  height: 3px;
+  margin-top: 8px;
+  border-radius: 2px;
+  background: var(--line);
+  overflow: hidden;
+}
+.progress i { display: block; height: 100%; background: var(--ink); }
+
+.book-del {
+  flex: none;
+  border: 0;
+  background: none;
+  padding: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+.book-del.confirm { color: #b3261e; font-weight: 600; }
+
+.hint {
+  margin-top: 28px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* ---------- Leitura ---------- */
+
+.reader {
+  position: fixed;
+  inset: 0;
+  background: var(--paper);
+  overflow: hidden;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.stage {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: calc(10px + var(--safe-t)) calc(10px + var(--safe-r)) calc(10px + var(--safe-b)) calc(10px + var(--safe-l));
+  overflow: hidden;
+}
+
+.reader.fit-width .stage {
+  display: block;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.reader.fit-width .stage canvas { margin: 0 auto; }
+
+.stage canvas { display: block; }
+
+.loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 15px;
+  pointer-events: none;
+}
+
+.bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  background: var(--bar);
+  color: var(--bar-ink);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  transition: transform .22s ease, opacity .22s ease;
+}
+
+.bar-top {
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: calc(8px + var(--safe-t)) calc(12px + var(--safe-r)) 8px calc(8px + var(--safe-l));
+}
+
+.bar-bottom {
+  bottom: 0;
+  padding: 12px calc(18px + var(--safe-r)) calc(10px + var(--safe-b)) calc(18px + var(--safe-l));
+}
+
+.reader:not(.ui) .bar-top { transform: translateY(-100%); opacity: 0; pointer-events: none; }
+.reader:not(.ui) .bar-bottom { transform: translateY(100%); opacity: 0; pointer-events: none; }
+
+.bar-btn {
+  border: 0;
+  background: none;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 15px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.bar-btn:active { background: rgba(255,255,255,.12); }
+
+.bar-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  opacity: .75;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: right;
+}
+
+.bar-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 6px;
+}
+
+.counter { font-size: 13px; opacity: .8; font-variant-numeric: tabular-nums; }
+
+#slider {
+  width: 100%;
+  accent-color: var(--bar-ink);
+}
+
+/* ---------- Temas ---------- */
+
+body[data-theme="sepia"] { --paper: #f4ecd8; }
+body[data-theme="sepia"] .stage canvas { mix-blend-mode: multiply; }
+
+body[data-theme="escuro"] { --paper: #1a1a1a; }
+body[data-theme="escuro"] .stage canvas { filter: invert(.9) hue-rotate(180deg); }
+body[data-theme="escuro"] .loading { color: #777; }
