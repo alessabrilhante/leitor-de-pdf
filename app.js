@@ -407,6 +407,7 @@ function editarMeta(chave, titulo, valor, passo) {
   salvar.onclick = () => {
     const v = Math.max(1, Math.round(Number(num.value) || 0));
     prefs.set(chave, String(v));
+    if (chave === 'metaDia') syncPrefsLembrete();
     closeSheet();
     renderView(false);
   };
@@ -656,6 +657,104 @@ $('sheet-fechar').onclick = closeSheet;
 $('sheet').addEventListener('click', (e) => { if (e.target === $('sheet')) closeSheet(); });
 
 for (const b of document.querySelectorAll('.nav button')) b.onclick = () => showView(b.dataset.view);
+
+/* ---------- Lembrete de leitura ---------- */
+
+const VAPID_PUBLICA = 'BEj1m2_i9y9AWZpXzUUiqR4qwDYSpEqiFTQSvEeeY-EmprHoEztcP570rAlKbonABUyjin54B7ZhSaqGhtLwu4c';
+const instalado = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+
+// o lembrete roda fora do app e lê a meta daqui
+function syncPrefsLembrete() {
+  if (!('caches' in window)) return;
+  caches.open('folha-prefs').then((c) => c.put('metaDia', new Response(String(metaDia())))).catch(() => {});
+}
+
+function chaveBytes(b64) {
+  const pad = '='.repeat((4 - (b64.length % 4)) % 4);
+  const raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+}
+
+function estadoLembrete() {
+  const h = prefs.get('lembreteHora', '');
+  $('lembrete-estado').textContent = h ? `Todo dia às ${h}h` : 'Desligado';
+}
+
+$('lembrete-btn').onclick = () => {
+  const body = el('div');
+  body.append(el('h3', 'sheet-titulo', 'Lembrete de leitura'));
+
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+    body.append(el('p', 'sheet-sub', instalado()
+      ? 'Este aparelho não aceita notificação de web app. Precisa do iOS 16.4 ou mais novo.'
+      : 'Pra receber lembrete, adicione a Biblioteca à Tela de Início (Compartilhar → Adicionar à Tela de Início) e abra por lá.'));
+    return openSheet(body);
+  }
+  if (!instalado()) {
+    body.append(el('p', 'sheet-sub', 'Pra receber lembrete, abra a Biblioteca pelo ícone da Tela de Início. No Safari o iPhone não deixa.'));
+    return openSheet(body);
+  }
+
+  body.append(el('p', 'sheet-sub', 'Que horas você quer o lembrete?'));
+  const hora = el('select', 'hora-select');
+  const atual = Number(prefs.get('lembreteHora', 21)) || 21;
+  for (let h = 5; h <= 23; h++) {
+    const o = el('option', '', `${h}h`);
+    o.value = h;
+    if (h === atual) o.selected = true;
+    hora.append(o);
+  }
+  const ativar = el('button', 'btn-cheio', 'Ativar lembrete');
+  ativar.type = 'button';
+  const saida = el('div', 'lembrete-saida');
+  body.append(hora, ativar, saida);
+
+  ativar.onclick = async () => {
+    ativar.disabled = true;
+    try {
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') {
+        saida.replaceChildren(el('p', 'sheet-sub', 'Notificação não foi permitida. Dá pra liberar em Ajustes → Notificações → Biblioteca.'));
+        return;
+      }
+      const reg = await navigator.serviceWorker.ready;
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: chaveBytes(VAPID_PUBLICA) });
+      const h = Number(hora.value);
+      prefs.set('lembreteHora', String(h));
+      syncPrefsLembrete();
+      estadoLembrete();
+      const aparelho = /iPad/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) ? 'iPad' : 'iPhone';
+      const codigo = JSON.stringify({ h, a: aparelho, s: sub.toJSON() });
+
+      const area = el('textarea', 'codigo');
+      area.readOnly = true;
+      area.value = codigo;
+      const copiar = el('button', 'btn-cheio', 'Copiar código');
+      copiar.type = 'button';
+      copiar.onclick = async () => {
+        try { await navigator.clipboard.writeText(codigo); copiar.textContent = 'Copiado ✓'; }
+        catch { area.select(); copiar.textContent = 'Selecionei: toque em Copiar'; }
+      };
+      const teste = el('button', 'btn-leve', 'Ver como fica');
+      teste.type = 'button';
+      teste.onclick = () => reg.showNotification('Biblioteca', { body: 'Que tal ler umas páginas agora? 📚', icon: 'icon-180.png', tag: 'teste' });
+      saida.replaceChildren(
+        el('p', 'sheet-sub', 'Último passo, só uma vez: copie o código e cole no GitHub, em Settings → Secrets and variables → Actions → LEMBRETE_ASSINATURAS. Se já tiver o código de outro aparelho lá, cole este numa linha nova.'),
+        area, copiar, teste,
+      );
+    } catch (err) {
+      console.error(err);
+      saida.replaceChildren(el('p', 'sheet-sub', 'Não consegui ativar agora. Fecha e abre o app de novo e tenta outra vez.'));
+    } finally {
+      ativar.disabled = false;
+    }
+  };
+  openSheet(body);
+};
+
+estadoLembrete();
+syncPrefsLembrete();
 
 const cleanName = (n) => n.replace(/(\.pdf)+$/i, '').replace(/_+/g, ' ').replace(/\s{2,}/g, ' ').trim() || 'Sem título';
 

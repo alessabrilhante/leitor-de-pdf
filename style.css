@@ -597,3 +597,47 @@ body[data-theme="rosa"] .book-spine { background: linear-gradient(90deg, #f7b6cf
   text-overflow: ellipsis;
   pointer-events: none;
 }
+
+/* lembrete */
+.lembrete-btn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin: 0 0 18px;
+  padding: 12px 14px;
+  text-align: left;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  cursor: pointer;
+}
+.lembrete-sino { font-size: 22px; }
+.lembrete-btn strong { display: block; font-size: 14px; }
+.lembrete-btn span span, #lembrete-estado { display: block; font-size: 12.5px; color: var(--muted); }
+.hora-select {
+  display: block;
+  width: 100%;
+  height: 46px;
+  margin-bottom: 12px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  font: 600 17px -apple-system, BlinkMacSystemFont, sans-serif;
+  color: var(--ink);
+}
+.lembrete-saida { margin-top: 14px; }
+.lembrete-saida .btn-cheio, .lembrete-saida .btn-leve { width: 100%; margin-top: 8px; }
+.codigo {
+  width: 100%;
+  height: 84px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font: 11px/1.35 ui-monospace, Menlo, monospace;
+  color: var(--muted);
+  background: #fff;
+  resize: none;
+}
+.btn-cheio:disabled { opacity: .5; }

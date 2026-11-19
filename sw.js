@@ -1,5 +1,6 @@
 // Guarda o app no aparelho pra funcionar sem internet.
-const VERSION = 'folha-v5';
+const VERSION = 'folha-v6';
+const PREFS = 'folha-prefs';   // metas que o lembrete lê
 const CORE = [
   './',
   'index.html',
@@ -19,7 +20,7 @@ self.addEventListener('install', (e) => {
 self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== VERSION).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => k !== VERSION && k !== PREFS).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
@@ -48,5 +49,60 @@ self.addEventListener('fetch', (e) => {
     } catch {
       return (await cache.match(req, { ignoreSearch: true })) || (await cache.match('index.html'));
     }
+  })());
+});
+
+/* ---------- Lembrete de leitura (notificação) ---------- */
+
+// Quanto você já leu hoje e qual é a meta (lê do próprio aparelho)
+async function progressoHoje() {
+  const d = new Date();
+  const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  let pages = 0, meta = 30;
+  try {
+    const c = await caches.open(PREFS);
+    const r = await c.match('metaDia');
+    if (r) meta = Number(await r.text()) || meta;
+  } catch { /* sem meta salva */ }
+  try {
+    pages = await new Promise((resolve) => {
+      const req = indexedDB.open('folha');
+      req.onerror = () => resolve(0);
+      req.onsuccess = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains('dias')) { db.close(); return resolve(0); }
+        const g = db.transaction('dias', 'readonly').objectStore('dias').get(key);
+        g.onsuccess = () => { db.close(); resolve(g.result?.pages || 0); };
+        g.onerror = () => { db.close(); resolve(0); };
+      };
+    });
+  } catch { /* sem registro */ }
+  return { pages, meta };
+}
+
+self.addEventListener('push', (e) => {
+  e.waitUntil((async () => {
+    let data = {};
+    try { data = e.data ? e.data.json() : {}; } catch { /* texto simples */ }
+    const { pages, meta } = await progressoHoje();
+    let body;
+    if (pages >= meta) body = `Meta de hoje batida: ${pages} páginas. Se quiser, mais um capítulo 💗`;
+    else if (pages > 0) body = `Faltam ${meta - pages} páginas pra sua meta de hoje. Bora? 📚`;
+    else body = data.body || 'Que tal ler umas páginas agora? 📚';
+    await self.registration.showNotification(data.title || 'Biblioteca', {
+      body,
+      icon: 'icon-180.png',
+      tag: 'lembrete-leitura',
+      data: { url: './' },
+    });
+  })());
+});
+
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  e.waitUntil((async () => {
+    const list = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    if (list[0]) return list[0].focus();
+    return self.clients.openWindow(e.notification.data?.url || './');
   })());
 });
