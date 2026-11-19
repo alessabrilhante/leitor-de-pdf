@@ -1,5 +1,5 @@
 // Guarda o app no aparelho pra funcionar sem internet.
-const VERSION = 'folha-v1';
+const VERSION = 'folha-v2';
 const CORE = [
   './',
   'index.html',

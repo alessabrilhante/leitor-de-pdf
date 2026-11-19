@@ -1,7 +1,7 @@
 {
-  "name": "Folha",
-  "short_name": "Folha",
-  "description": "Leitor de PDF limpo, só a página.",
+  "name": "Biblioteca",
+  "short_name": "Biblioteca",
+  "description": "Leitor de PDF limpo pra iPhone e iPad.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

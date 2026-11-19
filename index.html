@@ -7,8 +7,8 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="Folha">
-  <title>Folha</title>
+  <meta name="apple-mobile-web-app-title" content="Biblioteca">
+  <title>Biblioteca</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon-512.png">
   <link rel="apple-touch-icon" href="icon-180.png">
@@ -19,9 +19,9 @@
   <!-- Biblioteca -->
   <main id="library" class="library">
     <header class="lib-head">
-      <h1>Folha</h1>
+      <h1>Biblioteca</h1>
       <label class="btn-add">
-        <input id="file" type="file" accept="application/pdf,.pdf" hidden>
+        <input id="file" type="file" accept="application/pdf,.pdf" multiple hidden>
         <span>Adicionar PDF</span>
       </label>
     </header>
@@ -50,12 +50,25 @@
     <div id="bar-bottom" class="bar bar-bottom">
       <input id="slider" type="range" min="1" max="1" value="1" aria-label="Ir para a página">
       <div class="bar-row">
-        <button id="fit" class="bar-btn" type="button"></button>
+        <div id="modeSeg" class="seg" role="group" aria-label="Modo de leitura">
+          <button type="button" data-mode="texto">Texto</button>
+          <button type="button" data-mode="pagina">Página</button>
+        </div>
         <span id="counter" class="counter"></span>
+      </div>
+      <div class="bar-row">
+        <div id="fontCtl" class="font-ctl">
+          <button id="fontDown" class="bar-btn a-small" type="button" aria-label="Diminuir letra">A</button>
+          <button id="fontSize" class="bar-btn font-num" type="button" aria-label="Voltar ao tamanho padrão">20</button>
+          <button id="fontUp" class="bar-btn a-big" type="button" aria-label="Aumentar letra">A</button>
+        </div>
+        <button id="fit" class="bar-btn" type="button"></button>
         <button id="theme" class="bar-btn" type="button"></button>
       </div>
     </div>
   </section>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
   <script type="module" src="app.js"></script>
 </body>

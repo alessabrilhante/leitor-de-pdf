@@ -17,6 +17,8 @@ const els = {
   reader: $('reader'), stage: $('stage'), loading: $('loading'),
   back: $('back'), title: $('title'), slider: $('slider'),
   counter: $('counter'), fit: $('fit'), theme: $('theme'),
+  modeSeg: $('modeSeg'), fontCtl: $('fontCtl'), fontDown: $('fontDown'),
+  fontUp: $('fontUp'), fontSize: $('fontSize'), toast: $('toast'),
 };
 
 /* ---------- Preferências ---------- */
@@ -30,21 +32,46 @@ const prefs = {
   },
 };
 
-const THEMES = ['claro', 'sepia', 'escuro'];
-const THEME_LABEL = { claro: 'Claro', sepia: 'Sépia', escuro: 'Escuro' };
-const THEME_COLOR = { claro: '#ffffff', sepia: '#f4ecd8', escuro: '#1a1a1a' };
+const THEMES = ['claro', 'sepia', 'rosa', 'escuro'];
+const THEME_LABEL = { claro: 'Claro', sepia: 'Sépia', rosa: 'Rosa', escuro: 'Escuro' };
+const THEME_COLOR = { claro: '#ffffff', sepia: '#f4ecd8', rosa: '#fffafc', escuro: '#1a1a1a' };
+const SHELL_COLOR = { rosa: '#fff2f7' };
+const FONT_MIN = 14, FONT_MAX = 40, FONT_PADRAO = 20;
 let theme = prefs.get('theme', 'claro');
 let fit = prefs.get('fit', 'pagina');
+let mode = prefs.get('mode', 'texto');               // 'texto' (letra ajustável) ou 'pagina' (PDF original)
+let fontSize = Math.min(FONT_MAX, Math.max(FONT_MIN, Number(prefs.get('fonte', FONT_PADRAO)) || FONT_PADRAO));
 
 function applyTheme() {
   document.body.dataset.theme = theme;
   els.theme.textContent = 'Tema: ' + THEME_LABEL[theme];
   const meta = document.querySelector('meta[name="theme-color"]');
-  meta.content = els.reader.hidden ? '#f7f4ee' : THEME_COLOR[theme];
+  meta.content = els.reader.hidden ? (SHELL_COLOR[theme] || '#f7f4ee') : THEME_COLOR[theme];
+}
+
+// Modo do livro aberto: PDF escaneado (sem texto) só abre como página
+const textMode = () => mode === 'texto' && !book?.semTexto;
+
+function applyMode() {
+  const t = textMode();
+  els.reader.classList.toggle('mode-texto', t);
+  els.reader.classList.toggle('fit-width', !t && fit === 'largura');
+  for (const b of els.modeSeg.querySelectorAll('button')) b.classList.toggle('on', (b.dataset.mode === 'texto') === t);
+  els.fontCtl.hidden = !t;
+  els.fit.hidden = t;
+  els.fontSize.textContent = fontSize;
+}
+
+let toastTimer = null;
+function toast(msg, ms = 2600) {
+  els.toast.textContent = msg;
+  els.toast.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { els.toast.hidden = true; }, ms);
 }
 
 function applyFit() {
-  els.reader.classList.toggle('fit-width', fit === 'largura');
+  els.reader.classList.toggle('fit-width', !textMode() && fit === 'largura');
   els.fit.textContent = fit === 'largura' ? 'Ajuste: largura' : 'Ajuste: página';
 }
 
@@ -109,7 +136,7 @@ function bookItem(book) {
 
   const name = document.createElement('p');
   name.className = 'book-name';
-  name.textContent = book.name;
+  name.textContent = cleanName(book.name);
 
   const meta = document.createElement('p');
   meta.className = 'book-meta';
@@ -152,22 +179,31 @@ function bookItem(book) {
   return li;
 }
 
+const cleanName = (n) => n.replace(/(\.pdf)+$/i, '').replace(/_+/g, ' ').replace(/\s{2,}/g, ' ').trim() || 'Sem título';
+
 els.file.addEventListener('change', async () => {
-  const file = els.file.files[0];
+  const files = [...els.file.files];
   els.file.value = '';
-  if (!file) return;
+  if (!files.length) return;
 
   navigator.storage?.persist?.().catch(() => {});
 
-  const name = file.name.replace(/\.pdf$/i, '');
-  const existing = (await store.allMeta()).find((b) => b.name === name && b.size === file.size);
-  if (existing) return openBook(existing.id);
-
-  const id = (crypto.randomUUID?.() ?? String(Date.now()) + Math.random().toString(16).slice(2));
-  const buf = await file.arrayBuffer();
-  await store.putFile(id, buf);
-  await store.putMeta({ id, name, size: file.size, pages: 0, page: 1, updated: Date.now() });
-  openBook(id, true);
+  const all = await store.allMeta();
+  let last = null, added = 0;
+  for (const file of files) {
+    const name = cleanName(file.name);
+    const existing = all.find((b) => (b.name === name || b.name === file.name.replace(/\.pdf$/i, '')) && b.size === file.size);
+    if (existing) { last = existing.id; continue; }
+    if (files.length > 1) toast(`Adicionando ${added + 1} de ${files.length}…`, 60000);
+    const id = (crypto.randomUUID?.() ?? String(Date.now()) + Math.random().toString(16).slice(2));
+    const buf = await file.arrayBuffer();
+    await store.putFile(id, buf);
+    await store.putMeta({ id, name, size: file.size, pages: 0, page: 1, updated: Date.now() - added });
+    last = id; added++;
+  }
+  if (files.length === 1 && last) return openBook(last, added === 1);
+  if (added) toast(added === 1 ? '1 livro adicionado' : `${added} livros adicionados`);
+  renderLibrary();
 });
 
 /* ---------- Leitura ---------- */
@@ -190,7 +226,7 @@ async function openBook(id, isNew = false) {
   els.reader.hidden = false;
   els.reader.classList.remove('ui');
   els.loading.hidden = false;
-  els.title.textContent = book.name;
+  els.title.textContent = cleanName(book.name);
   applyTheme();
   if (history.state?.folha !== 'reader') history.pushState({ folha: 'reader' }, '');
 
@@ -200,7 +236,7 @@ async function openBook(id, isNew = false) {
   } catch (err) {
     console.error(err);
     if (isNew) await store.remove(id);
-    alert('Não consegui abrir esse arquivo. Confere se ele é um PDF válido.');
+    toast('Não consegui abrir esse arquivo. Confere se ele é um PDF válido.');
     return closeReader();
   }
 
@@ -208,13 +244,32 @@ async function openBook(id, isNew = false) {
   els.slider.max = doc.numPages;
   crops.clear();
   clearCache();
-  goTo(Math.min(Math.max(1, book.page || 1), doc.numPages));
+  texts.clear();
+  const start = Math.min(Math.max(1, book.page || 1), doc.numPages);
+  if (mode === 'texto' && book.semTexto === undefined) await checkText(start);
+  applyMode();
+  goTo(start, { frac: book.frac || 0 });
+}
+
+// PDF escaneado (foto da página) não tem texto: esse livro fica no modo Página
+async function checkText(start) {
+  let chars = 0;
+  for (let n = start; n < start + 6 && n <= doc.numPages; n++) {
+    for (const p of await getText(n)) chars += p.s.length;
+    if (chars > 60) break;
+  }
+  if (chars <= 60 && start > 1) {
+    for (let n = 1; n <= Math.min(6, doc.numPages); n++) for (const p of await getText(n)) chars += p.s.length;
+  }
+  book.semTexto = chars <= 60;
+  if (book.semTexto) toast('Esse PDF é imagem, então abre no modo Página');
 }
 
 async function closeReader() {
   token++;
   saveProgress(true);
   clearCache();
+  texts.clear();
   els.stage.replaceChildren();
   current = null;
   doc = null;
@@ -355,7 +410,11 @@ function trimCache() {
   }
 }
 
-async function goTo(n) {
+function goTo(n, at = {}) {
+  return textMode() ? goToText(n, at) : goToPage(n);
+}
+
+async function goToPage(n) {
   if (!doc) return;
   n = Math.min(Math.max(1, n), doc.numPages);
   pageNum = n;
@@ -387,13 +446,225 @@ async function goTo(n) {
   }, 60);
 }
 
-function next() { if (doc && pageNum < doc.numPages) { setUI(false); goTo(pageNum + 1); } }
-function prev() { if (doc && pageNum > 1) { setUI(false); goTo(pageNum - 1); } }
+function next() {
+  if (!doc) return;
+  setUI(false);
+  if (textMode()) {
+    measureScreens();
+    if (screen < screens - 1) return showScreen(screen + 1);
+    if (pageNum < doc.numPages) goToText(pageNum + 1, { screen: 'first', dir: 1 });
+    return;
+  }
+  if (pageNum < doc.numPages) goTo(pageNum + 1);
+}
+function prev() {
+  if (!doc) return;
+  setUI(false);
+  if (textMode()) {
+    measureScreens();
+    if (screen > 0) return showScreen(screen - 1);
+    if (pageNum > 1) goToText(pageNum - 1, { screen: 'last', dir: -1 });
+    return;
+  }
+  if (pageNum > 1) goTo(pageNum - 1);
+}
+
+/* ---------- Modo Texto: letra ajustável, vira a tela com toque ---------- */
+
+const texts = new Map();   // página -> parágrafos (do livro aberto)
+let screen = 0;            // tela atual dentro da página do PDF
+let screens = 1;           // quantas telas essa página ocupou
+let flowEl = null;
+let flowW = 0;
+
+function getText(n) {
+  if (!texts.has(n)) {
+    const pdf = doc;
+    const job = pdf.getPage(n).then(extractPage).catch(() => []);
+    texts.set(n, job);
+  }
+  return texts.get(n);
+}
+
+// Tira o texto de uma página do PDF e remonta em parágrafos
+async function extractPage(page) {
+  const tc = await page.getTextContent();
+  const lines = [];
+  let cur = null;
+  const push = () => { if (cur && cur.text.trim()) lines.push(cur); cur = null; };
+
+  for (const it of tc.items) {
+    if (typeof it.str !== 'string') continue;
+    const t = it.transform;
+    const h = Math.hypot(t[2], t[3]) || 10;
+    const x = t[4], y = t[5];
+    if (it.str) {
+      if (cur && Math.abs(y - cur.y) > Math.max(h, cur.h) * 0.6) push();
+      if (!cur) cur = { text: '', y, h, x0: x, x1: x, hw: 0, n: 0 };
+      else if (x - cur.x1 > h * 0.12 && !/\s$/.test(cur.text) && !/^\s/.test(it.str)) cur.text += ' ';
+      cur.text += it.str;
+      cur.x1 = Math.max(cur.x1, x + (it.width || 0));
+      cur.h = Math.max(cur.h, h);
+      const len = it.str.trim().length;
+      cur.hw += h * len; cur.n += len; // tamanho "típico" da linha (ignora letra capitular)
+    }
+    if (it.hasEOL) push();
+  }
+  push();
+  if (!lines.length) return [];
+
+  const sorted = (arr) => [...arr].sort((a, b) => a - b);
+  const pick = (arr, q) => arr[Math.min(arr.length - 1, Math.floor(arr.length * q))];
+  const medH = pick(sorted(lines.map((l) => (l.n ? l.hw / l.n : l.h))), 0.5);
+  const right = pick(sorted(lines.map((l) => l.x1)), 0.9);
+  const left = pick(sorted(lines.map((l) => l.x0)), 0.1);
+  const width = Math.max(1, right - left);
+  const gaps = [];
+  for (let i = 1; i < lines.length; i++) {
+    const g = lines[i - 1].y - lines[i].y;
+    if (g > 0 && g < medH * 4) gaps.push(g);
+  }
+  const medGap = gaps.length ? pick(sorted(gaps), 0.5) : medH * 1.3;
+
+  const paras = [];
+  let p = null, prev = null, dropCap = '';
+  for (const l of lines) {
+    let text = l.text.replace(/\s+/g, ' ').trim();
+    if (!text) continue;
+    if (/^\d{1,4}$/.test(text)) continue; // número de página solto
+    const typical = l.n ? l.hw / l.n : l.h;
+    // letra capitular sozinha numa linha: gruda na palavra seguinte
+    if (/^\p{L}$/u.test(text) && typical > medH * 1.2) { dropCap = text; continue; }
+    if (dropCap) { text = dropCap + text; dropCap = ''; p = null; }
+    const isHead = typical > medH * 1.2 && text.length < 140;
+    const gapPrev = prev ? prev.y - l.y : Infinity;
+    // título que quebrou em duas linhas continua sendo um título só
+    if (isHead && p && p.t === 'h' && gapPrev > 0 && gapPrev < typical * 2.2) {
+      p.s += ' ' + text;
+      prev = l;
+      continue;
+    }
+    let brk = !p || isHead || p.t === 'h';
+    if (!brk && prev) {
+      const gap = prev.y - l.y;
+      const prevShort = prev.x1 < right - width * 0.12;
+      if (gap > medGap * 1.4 || gap < 0) brk = true;
+      else if (prevShort && /[.!?:;…"”')]$/.test(p.s)) brk = true;
+      else if (l.x0 > left + medH * 1.2 && prevShort) brk = true;
+      else if (/^([•▪●◦\-–—*]\s|\d{1,3}[.)]\s)/.test(text)) brk = true;
+    }
+    if (brk) {
+      p = { t: isHead ? 'h' : 'p', s: text };
+      paras.push(p);
+    } else if (/[a-zà-ÿ]-$/i.test(p.s) && /^[a-zà-ÿ]/.test(text)) {
+      p.s = p.s.slice(0, -1) + text; // junta palavra hifenizada
+    } else {
+      p.s += ' ' + text;
+    }
+    prev = l;
+  }
+  return paras;
+}
+
+function showScreen(i) {
+  screen = Math.min(Math.max(0, i), screens - 1);
+  if (flowEl) flowEl.style.transform = `translateX(${-screen * flowW}px)`;
+  saveProgress();
+}
+
+function layoutFlow() {
+  if (!flowEl) return;
+  const clip = flowEl.parentElement;
+  flowW = clip.clientWidth;
+  flowEl.style.fontSize = `${fontSize}px`;
+  flowEl.classList.toggle('ragged', fontSize > 24);
+  flowEl.style.width = `${flowW}px`;
+  flowEl.style.columnWidth = `${flowW}px`;
+  flowEl.style.transform = 'none';
+  measureScreens();
+}
+
+// quantas colunas (telas) o texto da página ocupou
+function measureScreens() {
+  if (!flowEl) return screens;
+  const w = flowEl.parentElement.clientWidth;
+  if (w && w !== flowW) { layoutFlow(); return screens; }
+  screens = Math.max(1, Math.round(flowEl.scrollWidth / flowW));
+  return screens;
+}
+
+async function goToText(n, at = {}) {
+  if (!doc) return;
+  n = Math.min(Math.max(1, n), doc.numPages);
+  pageNum = n;
+  const mine = ++token;
+  updateBar();
+
+  const paras = await getText(n);
+  if (mine !== token) return;
+
+  // página sem texto (só imagem): pula na direção do movimento
+  if (!paras.length && at.dir && n + at.dir >= 1 && n + at.dir <= doc.numPages) {
+    return goToText(n + at.dir, at);
+  }
+  if (!paras.length && !at.dir && n < doc.numPages && at.skip !== false) {
+    return goToText(n + 1, { ...at, dir: 1 });
+  }
+
+  const view = document.createElement('div');
+  view.className = 'flow-view';
+  const clip = document.createElement('div');
+  clip.className = 'flow-clip';
+  const flow = document.createElement('div');
+  flow.className = 'flow';
+  flow.lang = 'pt-BR';
+  if (!paras.length) {
+    const p = document.createElement('p');
+    p.className = 'flow-empty';
+    p.textContent = 'Esta página não tem texto. Para ver, use o modo Página.';
+    flow.append(p);
+  }
+  for (const p of paras) {
+    const el = document.createElement(p.t === 'h' ? 'h2' : 'p');
+    el.textContent = p.s;
+    flow.append(el);
+  }
+  clip.append(flow);
+  view.append(clip);
+  current = null;
+  els.stage.replaceChildren(view);
+  clearCache();
+  flowEl = flow;
+  els.loading.hidden = true;
+  layoutFlow();
+  await new Promise(requestAnimationFrame);
+  if (mine !== token) return;
+  measureScreens();
+
+  let i = 0;
+  if (at.screen === 'last') i = screens - 1;
+  else if (typeof at.frac === 'number') i = Math.round(at.frac * screens);
+  showScreen(i);
+
+  // deixa a próxima página pronta
+  setTimeout(() => { if (mine === token && doc && n < doc.numPages) getText(n + 1); }, 60);
+}
+
+function setFont(px) {
+  fontSize = Math.min(FONT_MAX, Math.max(FONT_MIN, Math.round(px)));
+  prefs.set('fonte', String(fontSize));
+  els.fontSize.textContent = fontSize;
+  if (!flowEl || !textMode()) return;
+  const frac = screens > 1 ? screen / screens : 0;
+  layoutFlow();
+  showScreen(Math.round(frac * screens));
+}
 
 let saveTimer = null;
 function saveProgress(now = false) {
   if (!book) return;
   book.page = pageNum;
+  book.frac = textMode() && screens > 1 ? screen / screens : 0;
   book.updated = Date.now();
   const snapshot = { ...book };
   clearTimeout(saveTimer);
@@ -452,6 +723,21 @@ els.slider.addEventListener('input', () => {
 });
 els.slider.addEventListener('change', () => goTo(Number(els.slider.value)));
 
+els.modeSeg.addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b || b.dataset.mode === (textMode() ? 'texto' : 'pagina')) return;
+  if (b.dataset.mode === 'texto' && book?.semTexto) { toast('Esse PDF é imagem, não tem texto pra mostrar'); return; }
+  mode = b.dataset.mode;
+  prefs.set('mode', mode);
+  applyMode();
+  flowEl = null;
+  if (doc) goTo(pageNum, { skip: false });
+});
+
+els.fontDown.addEventListener('click', () => setFont(fontSize - 2));
+els.fontUp.addEventListener('click', () => setFont(fontSize + 2));
+els.fontSize.addEventListener('click', () => setFont(FONT_PADRAO));
+
 els.fit.addEventListener('click', () => {
   fit = fit === 'largura' ? 'pagina' : 'largura';
   prefs.set('fit', fit);
@@ -482,6 +768,7 @@ window.addEventListener('resize', () => {
   resizeTimer = setTimeout(() => {
     if (els.reader.hidden || !doc) return;
     clearCache();
+    if (textMode() && flowEl) { setFont(fontSize); return; }
     goTo(pageNum);
   }, 150);
 });
@@ -494,11 +781,14 @@ document.addEventListener('visibilitychange', () => {
 
 if (!THEMES.includes(theme)) theme = 'claro';
 if (fit !== 'largura') fit = 'pagina';
+if (mode !== 'pagina') mode = 'texto';
 applyTheme();
 applyFit();
+applyMode();
 if (history.state?.folha === 'reader') history.replaceState(null, '');
 renderLibrary();
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }
+
