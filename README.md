@@ -12,6 +12,14 @@ Leitor de PDF pra iPhone e iPad. Com o livro aberto, a tela mostra só a página
 - **Adicionar vários:** dá pra escolher vários PDFs de uma vez.
 - A Biblioteca lembra em que página você parou em cada livro.
 
+## Telas
+
+- **Início:** livro que você está lendo (capa, autor, progresso e botão Continuar), páginas e minutos lidos hoje, dias seguidos lendo, meta do dia e do mês (toque pra mudar o número) e os livros recentes.
+- **Biblioteca:** capas grandes ou lista, selo "Novo" nos livros ainda não abertos, busca, e etiquetas (no botão "…" de cada livro) pra filtrar.
+- **Estatísticas:** livro atual, semana e mês (páginas, páginas por dia, tempo por dia e total), meta do mês e calendário com os livros lidos em cada dia.
+
+O tempo conta enquanto você lê e vira as páginas; se ficar mais de 3 minutos sem tocar na tela, para de contar.
+
 ## Instalar no iPhone/iPad
 
 Abre o site no Safari, toca em **Compartilhar → Adicionar à Tela de Início**. Assim ele abre em tela cheia e funciona sem internet.

@@ -80,10 +80,12 @@ function applyFit() {
 let dbPromise;
 function db() {
   dbPromise ??= new Promise((resolve, reject) => {
-    const req = indexedDB.open('folha', 1);
+    const req = indexedDB.open('folha', 2);
     req.onupgradeneeded = () => {
-      req.result.createObjectStore('meta', { keyPath: 'id' });
-      req.result.createObjectStore('files');
+      const d = req.result;
+      if (!d.objectStoreNames.contains('meta')) d.createObjectStore('meta', { keyPath: 'id' });
+      if (!d.objectStoreNames.contains('files')) d.createObjectStore('files');
+      if (!d.objectStoreNames.contains('dias')) d.createObjectStore('dias', { keyPath: 'date' });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -110,74 +112,550 @@ const store = {
   putMeta: (m) => run('meta', 'readwrite', (s) => s.put(m)),
   getFile: (id) => run('files', 'readonly', (s) => s.get(id)),
   putFile: (id, buf) => run('files', 'readwrite', (s) => s.put(buf, id)),
+  allDays: () => run('dias', 'readonly', (s) => s.getAll()),
+  getDay: (date) => run('dias', 'readonly', (s) => s.get(date)),
+  putDay: (d) => run('dias', 'readwrite', (s) => s.put(d)),
   async remove(id) {
     await run('meta', 'readwrite', (s) => s.delete(id));
     await run('files', 'readwrite', (s) => s.delete(id));
   },
 };
 
-/* ---------- Estante ---------- */
+/* ---------- Registro de leitura: tempo e páginas, por dia e por livro ---------- */
 
-async function renderLibrary() {
-  const list = (await store.allMeta()).sort((a, b) => b.updated - a.updated);
-  els.empty.hidden = list.length > 0;
-  els.books.replaceChildren(...list.map(bookItem));
+const dayKey = (d = new Date()) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const PARADA_MAX = 3 * 60 * 1000;   // mais que isso sem tocar na tela não conta como leitura
+let lastActive = 0;
+let pend = { ms: 0, pages: 0 };      // ainda não gravado
+let flushTimer = null;
+
+function activity() {
+  if (!book) return;
+  const now = Date.now();
+  if (lastActive) pend.ms += Math.min(now - lastActive, PARADA_MAX);
+  lastActive = now;
+  clearTimeout(flushTimer);
+  flushTimer = setTimeout(flushLog, 4000);
 }
 
-function bookItem(book) {
-  const li = document.createElement('li');
-  li.className = 'book';
+function countPage() {
+  if (!book) return;
+  pend.pages++;
+  activity();
+}
 
-  const spine = document.createElement('div');
-  spine.className = 'book-spine';
+async function flushLog() {
+  clearTimeout(flushTimer);
+  if (!book || (!pend.ms && !pend.pages)) return;
+  const { ms, pages } = pend;
+  pend = { ms: 0, pages: 0 };
+  const key = dayKey();
+  const day = (await store.getDay(key)) || { date: key, ms: 0, pages: 0, books: {} };
+  day.ms += ms;
+  day.pages += pages;
+  const b = day.books[book.id] || { ms: 0, pages: 0 };
+  b.ms += ms;
+  b.pages += pages;
+  b.name = book.name;
+  day.books[book.id] = b;
+  await store.putDay(day);
+  book.ms = (book.ms || 0) + ms;
+  book.read = (book.read || 0) + pages;
+  saveProgress(true);
+}
 
-  const info = document.createElement('div');
-  info.className = 'book-info';
+/* ---------- Capa e autor de cada livro ---------- */
 
-  const name = document.createElement('p');
-  name.className = 'book-name';
-  name.textContent = cleanName(book.name);
+// "Girl Boss - Sophia Amoruso" com autor conhecido vira só "Girl Boss"
+function titulo(b) {
+  const n = cleanName(b.name);
+  if (b.author) {
+    const i = n.toLowerCase().lastIndexOf(' - ');
+    if (i > 0 && norm(n.slice(i + 3)).includes(norm(b.author).split(' ')[0])) return n.slice(0, i);
+  }
+  return n;
+}
+const tituloCurto = (nome) => cleanName(nome).split(' - ')[0];
 
-  const meta = document.createElement('p');
-  meta.className = 'book-meta';
-  meta.textContent = book.pages
-    ? `Página ${book.page} de ${book.pages}`
-    : 'Ainda não aberto';
+const isOpened = (b) => b.opened === true || (b.opened === undefined && b.pages > 0);
 
-  const bar = document.createElement('div');
-  bar.className = 'progress';
-  const fill = document.createElement('i');
-  fill.style.width = book.pages ? `${Math.round((book.page / book.pages) * 100)}%` : '0%';
-  bar.append(fill);
+async function makeCover(pdf) {
+  let best = null, bestInk = -1;
+  for (let n = 1; n <= Math.min(3, pdf.numPages); n++) {
+    const page = await pdf.getPage(n);
+    const v = page.getViewport({ scale: 1 });
+    const vp = page.getViewport({ scale: 320 / v.width });
+    const c = document.createElement('canvas');
+    c.width = Math.ceil(vp.width);
+    c.height = Math.ceil(vp.height);
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, c.width, c.height);
+    await page.render({ canvasContext: ctx, canvas: c, viewport: vp }).promise;
+    const px = ctx.getImageData(0, 0, c.width, c.height).data;
+    let ink = 0, total = 0;
+    for (let i = 0; i < px.length; i += 4 * 9) { total++; if (px[i] + px[i + 1] + px[i + 2] < 690) ink++; }
+    const ratio = ink / total;
+    // a capa costuma ser a página mais "cheia" do começo (pula página em branco)
+    if (ratio > bestInk) { bestInk = ratio; best = c.toDataURL('image/jpeg', 0.8); }
+    c.width = c.height = 0;
+    if (ratio > 0.35) break;
+  }
+  return best;
+}
 
-  info.append(name, meta, bar);
+const enriching = new Set();
+async function enrich(b) {
+  if (b.enriched || enriching.has(b.id)) return false;
+  enriching.add(b.id);
+  let t = null;
+  try {
+    const buf = await store.getFile(b.id);
+    if (!buf) return false;
+    t = pdfjsLib.getDocument({ data: new Uint8Array(buf), ...DOC_OPTS });
+    const pdf = await t.promise;
+    let author = '';
+    try {
+      const m = await pdf.getMetadata();
+      author = String(m?.info?.Author || '').trim();
+    } catch { /* sem metadados */ }
+    const cover = await makeCover(pdf).catch(() => null);
+    const fresh = await store.getMeta(b.id);
+    if (!fresh) return false;
+    if (fresh.opened === undefined) fresh.opened = fresh.pages > 0;
+    fresh.pages = fresh.pages || pdf.numPages;
+    if (cover) fresh.cover = cover;
+    if (author && author.length < 80 && !/^(user|usuario|usuário|admin|unknown|microsoft|adobe)/i.test(author)) fresh.author = author;
+    fresh.enriched = true;
+    await store.putMeta(fresh);
+    return true;
+  } catch (err) {
+    console.warn(err);
+    const fresh = await store.getMeta(b.id);
+    if (fresh) { fresh.enriched = true; await store.putMeta(fresh); }
+    return false;
+  } finally {
+    enriching.delete(b.id);
+    t?.destroy().catch(() => {});
+  }
+}
 
-  const del = document.createElement('button');
-  del.type = 'button';
-  del.className = 'book-del';
-  del.textContent = 'Remover';
-  let armed = null;
-  del.addEventListener('click', async (e) => {
-    e.stopPropagation();
-    if (!armed) {
-      del.classList.add('confirm');
-      del.textContent = 'Confirmar';
-      armed = setTimeout(() => {
-        armed = null;
-        del.classList.remove('confirm');
-        del.textContent = 'Remover';
-      }, 3000);
-      return;
+let enrichRunning = false;
+async function enrichAll() {
+  if (enrichRunning) return;
+  enrichRunning = true;
+  try {
+    let changed = false;
+    for (const b of await store.allMeta()) {
+      if (!els.reader.hidden) break;          // não pesa enquanto você lê
+      if (!b.enriched && await enrich(b)) changed = true;
     }
-    clearTimeout(armed);
-    await store.remove(book.id);
-    renderLibrary();
-  });
+    if (changed && els.reader.hidden) renderView(false);
+  } finally {
+    enrichRunning = false;
+  }
+}
 
-  li.append(spine, info, del);
-  li.addEventListener('click', () => openBook(book.id));
+/* ---------- Formatação ---------- */
+
+function fmtTempo(ms) {
+  const min = Math.round((ms || 0) / 60000);
+  if (min < 60) return `${min}min`;
+  const h = Math.floor(min / 60), m = min % 60;
+  return m ? `${h}h ${m}min` : `${h}h`;
+}
+const pct = (a, b) => (b > 0 ? Math.min(100, Math.round((a / b) * 100)) : 0);
+const norm = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+const el = (tag, cls, text) => {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
+};
+
+function coverEl(b, cls = 'capa') {
+  const box = el('div', cls);
+  if (b.cover) {
+    const img = new Image();
+    img.src = b.cover;
+    img.alt = '';
+    box.append(img);
+  } else {
+    box.classList.add('capa-vazia');
+    box.append(el('span', '', cleanName(b.name)));
+  }
+  if (!isOpened(b)) box.append(el('span', 'novo', 'Novo'));
+  return box;
+}
+
+function streak(days) {
+  const ok = (d) => d && (d.pages > 0 || d.ms >= 60000);
+  const map = new Map(days.map((d) => [d.date, d]));
+  const d = new Date();
+  if (!ok(map.get(dayKey(d)))) d.setDate(d.getDate() - 1);
+  let n = 0;
+  while (ok(map.get(dayKey(d)))) { n++; d.setDate(d.getDate() - 1); }
+  return n;
+}
+
+function soma(days, from, to) {
+  let ms = 0, pages = 0;
+  for (const d of days) if (d.date >= from && d.date <= to) { ms += d.ms; pages += d.pages; }
+  return { ms, pages };
+}
+
+function inicioDaSemana(d = new Date()) {
+  const x = new Date(d);
+  x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); // segunda-feira
+  return x;
+}
+
+const metaDia = () => Math.max(1, Number(prefs.get('metaDia', 30)) || 30);
+const metaMes = () => Math.max(1, Number(prefs.get('metaMes', 900)) || 900);
+
+/* ---------- Telas: Início, Biblioteca, Estatísticas ---------- */
+
+let view = 'inicio';
+let filtro = 'Todos';
+let vis = prefs.get('vis', 'grade');
+
+function showView(v) {
+  if (v === 'buscar') {
+    showView('biblioteca');
+    setTimeout(() => $('busca').focus(), 50);
+    return;
+  }
+  view = v;
+  for (const id of ['inicio', 'biblioteca', 'estatisticas']) $('view-' + id).hidden = id !== v;
+  for (const b of document.querySelectorAll('.nav button')) b.classList.toggle('on', b.dataset.view === v);
+  window.scrollTo(0, 0);
+  renderView();
+}
+
+function renderView(enrichNow = true) {
+  const job = view === 'inicio' ? renderInicio() : view === 'biblioteca' ? renderBiblioteca() : renderStats();
+  if (enrichNow) job.then(() => setTimeout(enrichAll, 300));
+  return job;
+}
+const renderLibrary = () => renderView();
+
+async function renderInicio() {
+  const [books, days] = await Promise.all([store.allMeta(), store.allDays()]);
+  const hoje = new Date();
+  const data = hoje.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' });
+  $('hoje-data').textContent = data.charAt(0).toUpperCase() + data.slice(1);
+
+  const abertos = books.filter(isOpened).sort((a, b) => b.updated - a.updated);
+  const atual = abertos[0];
+  $('inicio-vazio').hidden = books.length > 0;
+  $('atual').hidden = !atual;
+  if (atual) {
+    $('atual-capa').replaceWith(Object.assign(coverEl(atual, 'capa capa-g'), { id: 'atual-capa' }));
+    $('atual-nome').textContent = titulo(atual);
+    $('atual-autor').textContent = atual.author || '';
+    const p = pct(atual.page, atual.pages);
+    $('atual-barra').style.width = `${p}%`;
+    $('atual-meta').textContent = `Pág. ${atual.page} de ${atual.pages} · ${p}%`;
+    $('atual-continuar').onclick = () => openBook(atual.id);
+    $('atual-capa').onclick = () => openBook(atual.id);
+  }
+
+  const d = days.find((x) => x.date === dayKey()) || { ms: 0, pages: 0 };
+  $('n-paginas').textContent = d.pages;
+  $('n-tempo').textContent = fmtTempo(d.ms);
+  $('n-seq').textContent = `🔥 ${streak(days)}`;
+
+  const mes = soma(days, dayKey(new Date(hoje.getFullYear(), hoje.getMonth(), 1)), dayKey(hoje));
+  setMeta($('meta-dia'), d.pages, metaDia());
+  setMeta($('meta-mes'), mes.pages, metaMes());
+
+  const resto = books.filter((b) => b !== atual).sort((a, b) => b.updated - a.updated).slice(0, 12);
+  $('recentes-box').hidden = !resto.length;
+  $('recentes').replaceChildren(...resto.map((b) => {
+    const btn = el('button', 'recente');
+    btn.type = 'button';
+    btn.append(coverEl(b), el('span', 'recente-nome', titulo(b)));
+    btn.onclick = () => openBook(b.id);
+    return btn;
+  }));
+}
+
+function setMeta(btn, feito, meta) {
+  btn.querySelector('i').style.width = `${pct(feito, meta)}%`;
+  btn.querySelector('.meta-num').textContent = `${feito} / ${meta} págs. (${pct(feito, meta)}%)`;
+}
+
+$('meta-dia').onclick = () => editarMeta('metaDia', 'Meta do dia', metaDia(), 5);
+$('meta-mes').onclick = () => editarMeta('metaMes', 'Meta do mês', metaMes(), 50);
+
+function editarMeta(chave, titulo, valor, passo) {
+  const body = el('div', 'meta-edit');
+  const num = el('input', 'meta-input');
+  num.type = 'number';
+  num.inputMode = 'numeric';
+  num.value = valor;
+  const menos = el('button', 'btn-redondo', '−');
+  const mais = el('button', 'btn-redondo', '+');
+  menos.type = mais.type = 'button';
+  menos.onclick = () => { num.value = Math.max(passo, (Number(num.value) || 0) - passo); };
+  mais.onclick = () => { num.value = (Number(num.value) || 0) + passo; };
+  const linha = el('div', 'meta-linha');
+  linha.append(menos, num, mais);
+  const salvar = el('button', 'btn-cheio', 'Salvar');
+  salvar.type = 'button';
+  salvar.onclick = () => {
+    const v = Math.max(1, Math.round(Number(num.value) || 0));
+    prefs.set(chave, String(v));
+    closeSheet();
+    renderView(false);
+  };
+  body.append(el('h3', 'sheet-titulo', titulo), el('p', 'sheet-sub', 'Quantas páginas?'), linha, salvar);
+  openSheet(body);
+}
+
+async function renderBiblioteca() {
+  const books = (await store.allMeta()).sort((a, b) => b.updated - a.updated);
+  const tags = [...new Set(books.flatMap((b) => b.tags || []))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  if (filtro !== 'Todos' && filtro !== 'Novos' && !tags.includes(filtro)) filtro = 'Todos';
+
+  const chips = ['Todos', 'Novos', ...tags].map((t) => {
+    const c = el('button', 'chip' + (t === filtro ? ' on' : ''), t);
+    c.type = 'button';
+    c.onclick = () => { filtro = t; renderBiblioteca(); };
+    return c;
+  });
+  $('filtros').replaceChildren(...chips);
+  $('vis').textContent = vis === 'grade' ? 'Ver em lista' : 'Ver em grade';
+
+  const q = norm($('busca').value.trim());
+  const lista = books.filter((b) =>
+    (filtro === 'Todos' || (filtro === 'Novos' ? !isOpened(b) : (b.tags || []).includes(filtro))) &&
+    (!q || norm(cleanName(b.name) + ' ' + (b.author || '')).includes(q)));
+
+  els.books.className = `books ${vis}`;
+  els.books.replaceChildren(...lista.map(bookItem));
+  els.empty.hidden = lista.length > 0;
+  els.empty.textContent = books.length === 0
+    ? 'Sua estante está vazia. Adicione PDFs na tela Início.'
+    : 'Nenhum livro encontrado.';
+}
+
+function bookItem(b) {
+  const li = el('li', 'book');
+  const abrir = el('button', 'book-abrir');
+  abrir.type = 'button';
+  const info = el('div', 'book-info');
+  info.append(el('p', 'book-name', titulo(b)));
+  if (b.author) info.append(el('p', 'book-autor', b.author));
+  info.append(el('p', 'book-meta', isOpened(b) ? `Pág. ${b.page} de ${b.pages} · ${pct(b.page, b.pages)}%` : (b.pages ? `${b.pages} páginas` : 'Ainda não aberto')));
+  if (isOpened(b)) {
+    const bar = el('div', 'barra');
+    const i = el('i');
+    i.style.width = `${pct(b.page, b.pages)}%`;
+    bar.append(i);
+    info.append(bar);
+  }
+  if (b.tags?.length) {
+    const t = el('p', 'book-tags');
+    for (const tag of b.tags) t.append(el('span', '', tag));
+    info.append(t);
+  }
+  abrir.append(coverEl(b), info);
+  abrir.onclick = () => openBook(b.id);
+
+  const mais = el('button', 'book-mais');
+  mais.type = 'button';
+  mais.setAttribute('aria-label', 'Etiquetas e opções');
+  mais.innerHTML = '<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>';
+  mais.onclick = (e) => { e.stopPropagation(); opcoesLivro(b.id); };
+
+  li.append(abrir, mais);
   return li;
 }
+
+async function opcoesLivro(id) {
+  const b = await store.getMeta(id);
+  if (!b) return;
+  const all = await store.allMeta();
+  const tags = [...new Set([...all.flatMap((x) => x.tags || []), 'Lendo', 'Lido', 'Quero ler'])].sort((a, c) => a.localeCompare(c, 'pt-BR'));
+  const minhas = new Set(b.tags || []);
+
+  const body = el('div');
+  body.append(el('h3', 'sheet-titulo', titulo(b)), el('p', 'sheet-sub', 'Etiquetas'));
+  const box = el('div', 'filtros');
+  const salvar = async () => {
+    const fresh = await store.getMeta(id);
+    if (!fresh) return;
+    fresh.tags = [...minhas];
+    await store.putMeta(fresh);
+    renderView(false);
+  };
+  const desenhar = () => {
+    box.replaceChildren(...tags.map((t) => {
+      const c = el('button', 'chip' + (minhas.has(t) ? ' on' : ''), t);
+      c.type = 'button';
+      c.onclick = () => { minhas.has(t) ? minhas.delete(t) : minhas.add(t); desenhar(); salvar(); };
+      return c;
+    }));
+  };
+  desenhar();
+
+  const nova = el('form', 'nova-tag');
+  const inp = el('input');
+  inp.placeholder = 'Nova etiqueta';
+  inp.maxLength = 30;
+  const add = el('button', 'btn-leve', 'Criar');
+  add.type = 'submit';
+  nova.append(inp, add);
+  nova.onsubmit = (e) => {
+    e.preventDefault();
+    const t = inp.value.trim();
+    if (!t) return;
+    if (!tags.includes(t)) tags.push(t);
+    minhas.add(t);
+    inp.value = '';
+    desenhar();
+    salvar();
+  };
+
+  const del = el('button', 'btn-perigo', 'Remover da estante');
+  del.type = 'button';
+  let armado = false;
+  del.onclick = async () => {
+    if (!armado) { armado = true; del.textContent = 'Toque de novo pra remover'; return; }
+    await store.remove(id);
+    closeSheet();
+    renderView(false);
+  };
+
+  body.append(box, nova, del);
+  openSheet(body);
+}
+
+$('busca').addEventListener('input', () => renderBiblioteca());
+$('vis').onclick = () => {
+  vis = vis === 'grade' ? 'lista' : 'grade';
+  prefs.set('vis', vis);
+  renderBiblioteca();
+};
+
+/* ---------- Estatísticas ---------- */
+
+let mesVisto = new Date();
+mesVisto.setDate(1);
+
+async function renderStats() {
+  const [books, days] = await Promise.all([store.allMeta(), store.allDays()]);
+  const hoje = new Date();
+  const box = $('stats');
+  box.replaceChildren();
+
+  const bloco = (titulo, itens) => {
+    const s = el('section', 'stat-bloco');
+    s.append(el('h3', 'secao', titulo));
+    const g = el('div', 'numeros');
+    for (const [v, l] of itens) {
+      const d = el('div');
+      d.append(el('strong', '', v), el('span', '', l));
+      g.append(d);
+    }
+    s.append(g);
+    box.append(s);
+  };
+
+  const atual = books.filter(isOpened).sort((a, b) => b.updated - a.updated)[0];
+  if (atual) {
+    const lidas = atual.read || 0;
+    bloco(`Livro atual · ${titulo(atual)}`, [
+      [fmtTempo(atual.ms), 'Tempo total'],
+      [String(lidas), 'Páginas lidas'],
+      [lidas ? fmtTempo(atual.ms / lidas) : '–', 'Por página'],
+      [`${pct(atual.page, atual.pages)}%`, 'Do livro'],
+    ]);
+  }
+
+  const seg = inicioDaSemana(hoje);
+  const diasSemana = (hoje.getDay() + 6) % 7 + 1;
+  const sem = soma(days, dayKey(seg), dayKey(hoje));
+  bloco('Esta semana', [
+    [String(sem.pages), 'Páginas'],
+    [String(Math.round(sem.pages / diasSemana)), 'Páginas/dia'],
+    [fmtTempo(sem.ms / diasSemana), 'Tempo/dia'],
+    [fmtTempo(sem.ms), 'Tempo total'],
+  ]);
+
+  const ini = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+  const mes = soma(days, dayKey(ini), dayKey(hoje));
+  bloco('Este mês', [
+    [String(mes.pages), 'Páginas'],
+    [String(Math.round(mes.pages / hoje.getDate())), 'Páginas/dia'],
+    [fmtTempo(mes.ms / hoje.getDate()), 'Tempo/dia'],
+    [fmtTempo(mes.ms), 'Tempo total'],
+  ]);
+
+  const meta = el('button', 'meta');
+  meta.type = 'button';
+  meta.append(el('span', 'meta-nome', 'Meta do mês'), Object.assign(el('span', 'barra'), { innerHTML: '<i></i>' }), el('span', 'meta-num'));
+  setMeta(meta, mes.pages, metaMes());
+  meta.onclick = () => editarMeta('metaMes', 'Meta do mês', metaMes(), 50);
+  const metas = el('section', 'metas');
+  metas.append(meta);
+  box.append(metas);
+
+  box.append(calendario(days));
+}
+
+function calendario(days) {
+  const map = new Map(days.map((d) => [d.date, d]));
+  const ano = mesVisto.getFullYear(), m = mesVisto.getMonth();
+  const s = el('section', 'cal');
+
+  const topo = el('div', 'cal-topo');
+  const ant = el('button', 'btn-redondo', '‹');
+  const prox = el('button', 'btn-redondo', '›');
+  ant.type = prox.type = 'button';
+  ant.setAttribute('aria-label', 'Mês anterior');
+  prox.setAttribute('aria-label', 'Próximo mês');
+  ant.onclick = () => { mesVisto = new Date(ano, m - 1, 1); renderStats(); };
+  prox.onclick = () => { mesVisto = new Date(ano, m + 1, 1); renderStats(); };
+  const nome = mesVisto.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+  topo.append(ant, el('h3', 'cal-mes', nome.charAt(0).toUpperCase() + nome.slice(1)), prox);
+  s.append(topo);
+
+  const grade = el('div', 'cal-grade');
+  for (const d of ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom']) grade.append(el('span', 'cal-dow', d));
+  const primeiro = new Date(ano, m, 1);
+  for (let i = 0; i < (primeiro.getDay() + 6) % 7; i++) grade.append(el('span', 'cal-vazio'));
+  const hojeKey = dayKey();
+  const ultimo = new Date(ano, m + 1, 0).getDate();
+  for (let dia = 1; dia <= ultimo; dia++) {
+    const key = dayKey(new Date(ano, m, dia));
+    const reg = map.get(key);
+    const c = el('div', 'cal-dia' + (key === hojeKey ? ' hoje' : '') + (key > hojeKey ? ' futuro' : '') + (reg && (reg.pages || reg.ms >= 60000) ? ' lido' : ''));
+    c.append(el('span', 'cal-n', String(dia)));
+    if (reg) {
+      const livros = Object.values(reg.books || {}).filter((b) => b.pages || b.ms >= 60000).sort((a, b) => b.ms - a.ms);
+      for (const b of livros.slice(0, 2)) c.append(el('span', 'cal-livro', tituloCurto(b.name)));
+      if (livros.length > 2) c.append(el('span', 'cal-mais', `+${livros.length - 2}`));
+    }
+    grade.append(c);
+  }
+  s.append(grade);
+  return s;
+}
+
+/* ---------- Janela de baixo ---------- */
+
+function openSheet(content) {
+  $('sheet-body').replaceChildren(content);
+  $('sheet').hidden = false;
+}
+function closeSheet() { $('sheet').hidden = true; }
+$('sheet-fechar').onclick = closeSheet;
+$('sheet').addEventListener('click', (e) => { if (e.target === $('sheet')) closeSheet(); });
+
+for (const b of document.querySelectorAll('.nav button')) b.onclick = () => showView(b.dataset.view);
 
 const cleanName = (n) => n.replace(/(\.pdf)+$/i, '').replace(/_+/g, ' ').replace(/\s{2,}/g, ' ').trim() || 'Sem título';
 
@@ -198,12 +676,12 @@ els.file.addEventListener('change', async () => {
     const id = (crypto.randomUUID?.() ?? String(Date.now()) + Math.random().toString(16).slice(2));
     const buf = await file.arrayBuffer();
     await store.putFile(id, buf);
-    await store.putMeta({ id, name, size: file.size, pages: 0, page: 1, updated: Date.now() - added });
+    await store.putMeta({ id, name, size: file.size, pages: 0, page: 1, opened: false, tags: [], updated: Date.now() - added });
     last = id; added++;
   }
   if (files.length === 1 && last) return openBook(last, added === 1);
   if (added) toast(added === 1 ? '1 livro adicionado' : `${added} livros adicionados`);
-  renderLibrary();
+  renderView();
 });
 
 /* ---------- Leitura ---------- */
@@ -241,6 +719,9 @@ async function openBook(id, isNew = false) {
   }
 
   book.pages = doc.numPages;
+  book.opened = true;
+  pend = { ms: 0, pages: 0 };
+  lastActive = Date.now();
   els.slider.max = doc.numPages;
   crops.clear();
   clearCache();
@@ -266,6 +747,9 @@ async function checkText(start) {
 }
 
 async function closeReader() {
+  activity();
+  await flushLog();
+  lastActive = 0;
   token++;
   saveProgress(true);
   clearCache();
@@ -278,7 +762,7 @@ async function closeReader() {
   els.reader.hidden = true;
   els.library.hidden = false;
   applyTheme();
-  renderLibrary();
+  setTimeout(() => renderView(), 150);   // espera gravar o progresso
 }
 
 function available() {
@@ -451,15 +935,16 @@ function next() {
   setUI(false);
   if (textMode()) {
     measureScreens();
-    if (screen < screens - 1) return showScreen(screen + 1);
-    if (pageNum < doc.numPages) goToText(pageNum + 1, { screen: 'first', dir: 1 });
+    if (screen < screens - 1) { activity(); return showScreen(screen + 1); }
+    if (pageNum < doc.numPages) { countPage(); goToText(pageNum + 1, { screen: 'first', dir: 1 }); }
     return;
   }
-  if (pageNum < doc.numPages) goTo(pageNum + 1);
+  if (pageNum < doc.numPages) { countPage(); goTo(pageNum + 1); }
 }
 function prev() {
   if (!doc) return;
   setUI(false);
+  activity();
   if (textMode()) {
     measureScreens();
     if (screen > 0) return showScreen(screen - 1);
@@ -668,7 +1153,12 @@ function saveProgress(now = false) {
   book.updated = Date.now();
   const snapshot = { ...book };
   clearTimeout(saveTimer);
-  const write = () => store.putMeta(snapshot).catch(() => {});
+  const write = async () => {
+    const cur = await store.getMeta(snapshot.id).catch(() => null);
+    if (!cur) return;   // livro removido
+    const { page, frac, updated, pages, semTexto, opened, ms, read } = snapshot;
+    await store.putMeta({ ...cur, page, frac, updated, pages, semTexto, opened, ms, read }).catch(() => {});
+  };
   if (now) write(); else saveTimer = setTimeout(write, 400);
 }
 
@@ -721,7 +1211,7 @@ document.addEventListener('keydown', (e) => {
 els.slider.addEventListener('input', () => {
   els.counter.textContent = `${els.slider.value} de ${doc?.numPages ?? '–'}`;
 });
-els.slider.addEventListener('change', () => goTo(Number(els.slider.value)));
+els.slider.addEventListener('change', () => { activity(); goTo(Number(els.slider.value)); });
 
 els.modeSeg.addEventListener('click', (e) => {
   const b = e.target.closest('button');
@@ -774,7 +1264,14 @@ window.addEventListener('resize', () => {
 });
 
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden') saveProgress(true);
+  if (document.visibilityState === 'hidden') {
+    activity();
+    flushLog();
+    lastActive = 0;          // app fechado não conta como leitura
+    saveProgress(true);
+  } else if (book) {
+    lastActive = Date.now();
+  }
 });
 
 /* ---------- Início ---------- */
@@ -786,7 +1283,7 @@ applyTheme();
 applyFit();
 applyMode();
 if (history.state?.folha === 'reader') history.replaceState(null, '');
-renderLibrary();
+showView('inicio');
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch(() => {});

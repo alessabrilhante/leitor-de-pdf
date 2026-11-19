@@ -16,25 +16,99 @@
 </head>
 <body>
 
-  <!-- Biblioteca -->
-  <main id="library" class="library">
-    <header class="lib-head">
-      <h1>Biblioteca</h1>
-      <label class="btn-add">
-        <input id="file" type="file" accept="application/pdf,.pdf" multiple hidden>
-        <span>Adicionar PDF</span>
-      </label>
-    </header>
+  <!-- App: Início, Biblioteca e Estatísticas -->
+  <div id="library" class="app">
 
-    <p id="empty" class="empty" hidden>
-      Sua estante está vazia.<br>
-      Toque em <strong>Adicionar PDF</strong> e escolha um arquivo.
-    </p>
+    <!-- Início -->
+    <main id="view-inicio" class="view">
+      <header class="view-head">
+        <div>
+          <p id="hoje-data" class="kicker"></p>
+          <h1>Biblioteca</h1>
+        </div>
+        <label class="btn-add">
+          <input id="file" type="file" accept="application/pdf,.pdf" multiple hidden>
+          <span>Adicionar PDF</span>
+        </label>
+      </header>
 
-    <ul id="books" class="books"></ul>
+      <section id="atual" class="atual" hidden>
+        <div id="atual-capa" class="capa capa-g"></div>
+        <div class="atual-info">
+          <p class="kicker">Lendo agora</p>
+          <h2 id="atual-nome" class="atual-nome"></h2>
+          <p id="atual-autor" class="atual-autor"></p>
+          <div class="barra"><i id="atual-barra"></i></div>
+          <p id="atual-meta" class="atual-meta"></p>
+          <button id="atual-continuar" class="btn-cheio" type="button">Continuar</button>
+        </div>
+      </section>
 
-    <p class="hint">Os livros ficam só neste aparelho. Nada é enviado pra internet.</p>
-  </main>
+      <div id="inicio-vazio" class="vazio" hidden>
+        <p class="vazio-titulo">Sua estante está vazia</p>
+        <p>Toque em <strong>Adicionar PDF</strong>. Dá pra escolher vários de uma vez.</p>
+      </div>
+
+      <section class="numeros">
+        <div><strong id="n-paginas">0</strong><span>Páginas hoje</span></div>
+        <div><strong id="n-tempo">0min</strong><span>Lido hoje</span></div>
+        <div><strong id="n-seq">0</strong><span>Dias seguidos</span></div>
+      </section>
+
+      <section class="metas">
+        <button id="meta-dia" class="meta" type="button">
+          <span class="meta-nome">Meta do dia</span>
+          <span class="barra"><i></i></span>
+          <span class="meta-num"></span>
+        </button>
+        <button id="meta-mes" class="meta" type="button">
+          <span class="meta-nome">Meta do mês</span>
+          <span class="barra"><i></i></span>
+          <span class="meta-num"></span>
+        </button>
+        <p class="dica">Toque numa meta pra mudar o número.</p>
+      </section>
+
+      <section id="recentes-box" hidden>
+        <h3 class="secao">Recentes</h3>
+        <div id="recentes" class="recentes"></div>
+      </section>
+    </main>
+
+    <!-- Biblioteca -->
+    <main id="view-biblioteca" class="view" hidden>
+      <header class="view-head">
+        <h1>Livros</h1>
+        <button id="vis" class="btn-leve" type="button" aria-label="Mudar visualização"></button>
+      </header>
+      <input id="busca" class="busca" type="search" placeholder="Buscar livro" autocomplete="off">
+      <div id="filtros" class="filtros"></div>
+      <ul id="books" class="books grade"></ul>
+      <p id="empty" class="vazio" hidden></p>
+      <p class="hint">Os livros ficam só neste aparelho. Nada é enviado pra internet.</p>
+    </main>
+
+    <!-- Estatísticas -->
+    <main id="view-estatisticas" class="view" hidden>
+      <header class="view-head"><h1>Estatísticas</h1></header>
+      <div id="stats"></div>
+    </main>
+
+    <nav class="nav" aria-label="Navegação">
+      <button data-view="inicio" type="button"><svg viewBox="0 0 24 24"><path d="M4 11l8-7 8 7v8.5a.5.5 0 0 1-.5.5H15v-6H9v6H4.5a.5.5 0 0 1-.5-.5z"/></svg><span>Início</span></button>
+      <button data-view="biblioteca" type="button"><svg viewBox="0 0 24 24"><path d="M5 4h3v16H5zM10 4h3v16h-3zM15.2 5.2l2.9-.8 3.4 15-2.9.8z"/></svg><span>Biblioteca</span></button>
+      <button data-view="buscar" type="button"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></svg><span>Buscar</span></button>
+      <button data-view="estatisticas" type="button"><svg viewBox="0 0 24 24"><path d="M5 20V12M10 20V6M15 20v-9M20 20V9"/></svg><span>Estatísticas</span></button>
+    </nav>
+  </div>
+
+  <!-- Janela de baixo (metas, etiquetas) -->
+  <div id="sheet" class="sheet" hidden>
+    <div class="sheet-card" role="dialog" aria-modal="true">
+      <div id="sheet-body"></div>
+      <button id="sheet-fechar" class="sheet-fechar" type="button">Fechar</button>
+    </div>
+  </div>
 
   <!-- Leitura -->
   <section id="reader" class="reader" hidden>
