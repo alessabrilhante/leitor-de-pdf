@@ -694,8 +694,9 @@ function chaveBytes(b64) {
 }
 
 function estadoLembrete() {
-  const h = prefs.get('lembreteHora', '');
-  $('lembrete-estado').textContent = h ? `Todo dia às ${h}h` : 'Desligado';
+  let h = prefs.get('lembreteHora', '');
+  if (h && !h.includes(':')) h = `${String(h).padStart(2, '0')}:00`;   // versão antiga guardava só a hora
+  $('lembrete-estado').textContent = h ? `Todo dia às ${h}` : 'Desligado';
 }
 
 $('lembrete-btn').onclick = () => {
@@ -715,17 +716,26 @@ $('lembrete-btn').onclick = () => {
 
   body.append(el('p', 'sheet-sub', 'Que horas você quer o lembrete?'));
   const hora = el('select', 'hora-select');
-  const atual = Number(prefs.get('lembreteHora', 21)) || 21;
+  const minuto = el('select', 'hora-select');
+  const [hAtual, mAtual] = prefs.get('lembreteHora', '21:00').split(':').map(Number);
   for (let h = 5; h <= 23; h++) {
-    const o = el('option', '', `${h}h`);
+    const o = el('option', '', `${String(h).padStart(2, '0')}h`);
     o.value = h;
-    if (h === atual) o.selected = true;
+    if (h === hAtual) o.selected = true;
     hora.append(o);
   }
+  for (const m of [0, 15, 30, 45]) {
+    const o = el('option', '', `${String(m).padStart(2, '0')} min`);
+    o.value = m;
+    if (m === (mAtual || 0)) o.selected = true;
+    minuto.append(o);
+  }
+  const relogio = el('div', 'relogio');
+  relogio.append(hora, minuto);
   const ativar = el('button', 'btn-cheio', 'Ativar lembrete');
   ativar.type = 'button';
   const saida = el('div', 'lembrete-saida');
-  body.append(hora, ativar, saida);
+  body.append(relogio, ativar, saida);
 
   ativar.onclick = async () => {
     ativar.disabled = true;
@@ -739,11 +749,13 @@ $('lembrete-btn').onclick = () => {
       let sub = await reg.pushManager.getSubscription();
       if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: chaveBytes(VAPID_PUBLICA) });
       const h = Number(hora.value);
-      prefs.set('lembreteHora', String(h));
+      const m = Number(minuto.value);
+      const hhmm = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+      prefs.set('lembreteHora', hhmm);
       syncPrefsLembrete();
       estadoLembrete();
       const aparelho = /iPad/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) ? 'iPad' : 'iPhone';
-      const codigo = JSON.stringify({ h, a: aparelho, s: sub.toJSON() });
+      const codigo = JSON.stringify({ h, m, a: aparelho, s: sub.toJSON() });
 
       const area = el('textarea', 'codigo');
       area.readOnly = true;

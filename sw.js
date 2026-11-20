@@ -1,5 +1,5 @@
 // Guarda o app no aparelho pra funcionar sem internet.
-const VERSION = 'folha-v8';
+const VERSION = 'folha-v9';
 const PREFS = 'folha-prefs';   // metas que o lembrete lê
 const CORE = [
   './',

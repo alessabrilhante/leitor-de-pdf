@@ -627,6 +627,7 @@ body[data-theme="rosa"] .book-spine { background: linear-gradient(90deg, #f7b6cf
   font: 600 17px -apple-system, BlinkMacSystemFont, sans-serif;
   color: var(--ink);
 }
+.relogio { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .lembrete-saida { margin-top: 14px; }
 .lembrete-saida .btn-cheio, .lembrete-saida .btn-leve { width: 100%; margin-top: 8px; }
 .codigo {
